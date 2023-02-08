@@ -19,7 +19,7 @@ using rome::rdma::RemoteObjectProto;
 
 RdmaIHT::RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm) : self_(std::move(self)), pool_(self, std::move(cm)) {}
 
-typedef remote_ptr<int> data;
+typedef remote_ptr<Secret> data;
 
 void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
     int secret = 0x8888;
@@ -32,7 +32,8 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
 
         // Allocate data in pool
 		RemoteObjectProto proto;
-        remote_ptr<data> secret_ptr = pool_.Allocate<data>();
+        data secret_ptr = pool_.Allocate<Secret>();
+        secret_ptr->value = secret;
         proto.set_raddr(secret_ptr.address());
 
         // Iterate through peers
@@ -50,16 +51,16 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
         auto conn_or = pool_.connection_manager()->GetConnection(host.id);
 
         // Try to get the data from the machine, repeatedly trying until successful
-        RemoteObjectProto got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
+        auto got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
         while(got.status().code() == absl::StatusCode::kUnavailable) {
             got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
         }
 
         // From there, decode the data into a value
-        remote_ptr<data> secret_ptr;
-        secret_ptr = decltype(secret_ptr)(host.id, got->raddr());
-        data value_ptr = pool_.Read<data>(secret_ptr);
-        int value = pool_.Read<int>(value_ptr);
+        data secret_ptr = decltype(secret_ptr)(host.id, got->raddr());
+        data value_ptr = pool_.Read<Secret>(secret_ptr);
+        Secret data_in = *std::to_address(value_ptr);
+        int value = data_in.value;
 
         freopen("output.txt", "w", stdout);
         std::cout << value << std::endl;

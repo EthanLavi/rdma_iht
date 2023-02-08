@@ -13,6 +13,10 @@ using ::rome::rdma::remote_nullptr;
 using ::rome::rdma::remote_ptr;
 using ::rome::rdma::RemoteObjectProto;
 
+struct Secret {
+    int value;
+};
+
 class RdmaIHT {
 public:
     using conn_type = MemoryPool::conn_type;
