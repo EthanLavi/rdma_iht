@@ -7,8 +7,8 @@
 #include <cstdio>
 #include <iostream>
 
-#include "../rome/rdma/memory_pool/remote_ptr.h"
-#include "../rome/rdma/connection_manager/connection_manager.h"
+#include "rome/rdma/memory_pool/remote_ptr.h"
+#include "rome/rdma/connection_manager/connection_manager.h"
 #include "iht_ds.h"
 
 using rome::rdma::ConnectionManager;
