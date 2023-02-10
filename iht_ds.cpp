@@ -17,7 +17,7 @@ using rome::rdma::remote_nullptr;
 using rome::rdma::remote_ptr;
 using rome::rdma::RemoteObjectProto;
 
-RdmaIHT::RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm) : self_(std::move(self)), pool_(self, std::move(cm)) {}
+RdmaIHT::RdmaIHT(MemoryPool::Peer host_, std::unique_ptr<MemoryPool::cm_type> cm) : self_(std::move(host_)), pool_(host_, std::move(cm)) {}
 
 typedef remote_ptr<Secret> data;
 
