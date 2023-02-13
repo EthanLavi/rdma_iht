@@ -37,13 +37,13 @@ int main(){
     if (hostname[4] != '0'){
         // we are not node0, we are a peer
         self = receiver;
+        peers.push_back(host);
     } else {
         // we are node0, the host
         self = host;
+        peers.push_back(receiver);
     }
 
-    peers.push_back(receiver);
-    peers.push_back(host);
     RdmaIHT ds = RdmaIHT(self, std::make_unique<cm_type>(self.id));
     ds.Init(host, peers);
     return 0;
