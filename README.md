@@ -14,3 +14,7 @@ Made change to cc_toolchain_config.bzl
 - BUILD
 - spdlog.BUILD
 - fmt.BUILD
+
+## Errors
+
+> [2023-02-12 21:1142 thread:54545] [error] [external/rome/rome/rdma/memory_pool/memory_pool_impl.h:148] INTERNAL: ibv_modify_qp(): Invalid argument
