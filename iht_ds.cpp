@@ -22,7 +22,7 @@ RdmaIHT::RdmaIHT(MemoryPool::Peer self,
                 std::unique_ptr<MemoryPool::cm_type> cm) 
                 : self_(self), pool_(self, std::move(cm)) {}
 
-typedef remote_ptr<Secret> data;
+typedef remote_ptr<Integer> data;
 
 void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
     int secret = 0x8888;
@@ -40,7 +40,7 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
 
         // Allocate data in pool
 		RemoteObjectProto proto;
-        data secret_ptr = pool_.Allocate<Secret>();
+        data secret_ptr = pool_.Allocate<Integer>();
         secret_ptr->value = secret;
         proto.set_raddr(secret_ptr.address());
 
@@ -82,15 +82,15 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
     }
 }
 
-bool RdmaIHT::contains() {
+bool RdmaIHT::contains(int value) {
     return false;
 }
 
-bool RdmaIHT::insert() {
+bool RdmaIHT::insert(int value) {
     return false;
 }
 
-bool RdmaIHT::remove() {
+bool RdmaIHT::remove(int value) {
     return false;
 }
 
