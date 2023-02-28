@@ -59,11 +59,11 @@ None
 ## Configuring Your Enviornment For Development
 
 - Installations
-    - absl (/usr/local/absl) <i>[Abseil Source](https://github.com/abseil/abseil-cpp)</i>
+    - absl (/usr/local/include/absl) <i>[Abseil Source](https://github.com/abseil/abseil-cpp)</i>
     - rdma_core (?) <i>[RDMA Core Source](https://github.com/linux-rdma/rdma-core)</i>
     - Google Test Framework <i>[gmock Source](https://github.com/google/googletest)</i>
-        - gmock (/usr/local/gmock) 
-        - gtest (/usr/local/gtest)
+        - gmock (/usr/local/include/gmock) 
+        - gtest (/usr/local/include/gtest)
     - protos () <i>[Protocol Buffer Source](https://github.com/protocolbuffers/protobuf)</i>
 
 > Note to VSCode users. Edit the include path setting to allow for better Intellisense
