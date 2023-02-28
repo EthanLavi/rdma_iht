@@ -19,19 +19,16 @@ using rome::rdma::remote_ptr;
 using rome::rdma::RemoteObjectProto;
 
 RdmaIHT::RdmaIHT(MemoryPool::Peer self, 
-                std::unique_ptr<MemoryPool::cm_type> cm) 
-                : self_(self), pool_(self, std::move(cm)) {}
+                std::unique_ptr<MemoryPool::cm_type> cm, struct config confs) 
+                : self_(self), pool_(self, std::move(cm)), elist_size(confs.elist_size), plist_size(confs.plist_size) {}
 
-typedef remote_ptr<Integer> data;
 
 void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
-    int secret = 0x8888;
+
     is_host_ = self_.id == host.id;
     uint32_t block_size = 1 << 20;
 
-    std::cout << "Vector length" << peers.size() << std::endl;
     auto status = pool_.Init(block_size, peers);
-    std::cout << "Created pool" << std::endl;
     // ROME_CHECK_OK(ROME_RETURN(status), status);
 
     if (is_host_){
@@ -40,13 +37,12 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
 
         // Allocate data in pool
 		RemoteObjectProto proto;
-        data secret_ptr = pool_.Allocate<Integer>();
-        secret_ptr->value = secret;
-        proto.set_raddr(secret_ptr.address());
+        remote_plist iht_root = pool_.Allocate<PList>();
+        this->root = iht_root;
+        proto.set_raddr(iht_root.address());
 
         // Iterate through peers
         for (auto p = peers.begin(); p != peers.end(); p++){
-            std::cout << "Forming connection with " << p->address << std::endl;
             // Form a connection with the machine
             auto conn_or = pool_.connection_manager()->GetConnection(p->id);
             // ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
@@ -56,42 +52,20 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
             // ROME_CHECK_OK(ROME_RETURN(status), status);
         }
     } else {
-        std::cout << "Entering peer branch" << std::endl;
-        std::cout << "Forming connection with " << host.address << std::endl;
-
         // Listen for a connection
         auto conn_or = pool_.connection_manager()->GetConnection(host.id);
         // ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
 
         // Try to get the data from the machine, repeatedly trying until successful
         auto got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
-        std::cout << "Before loop" << std::endl;
         while(got.status().code() == absl::StatusCode::kUnavailable) {
             got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
         }
-        std::cout << "After loop" << std::endl;
         // ROME_CHECK_OK(ROME_RETURN(got.status()), got);
 
         // From there, decode the data into a value
-        data secret_ptr = decltype(secret_ptr)(host.id, got->raddr());
-        data value_ptr = pool_.Read<Secret>(secret_ptr);
-        Secret data_in = *std::to_address(value_ptr);
-        int value = data_in.value;
-
-        std::cout << value << std::endl;
+        remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
+        remote_plist value_ptr = pool_.Read<PList>(iht_root);
+        this->root = value_ptr;
     }
 }
-
-bool RdmaIHT::contains(int value) {
-    return false;
-}
-
-bool RdmaIHT::insert(int value) {
-    return false;
-}
-
-bool RdmaIHT::remove(int value) {
-    return false;
-}
-
-
