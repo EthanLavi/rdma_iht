@@ -38,6 +38,8 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
         // Allocate data in pool
 		RemoteObjectProto proto;
         remote_plist iht_root = pool_.Allocate<PList>();
+        iht_root->Init(&pool_);
+        std::cout << "Allocated PLIST" << std::endl;
         this->root = iht_root;
         proto.set_raddr(iht_root.address());
 

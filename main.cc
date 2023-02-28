@@ -53,14 +53,16 @@ int main(){
     ds.Init(host, peers);
 
     if (am_host){
+        std::cout << "Starting operations..." << std::endl;
         std::cout << "Contains 5: " << ds.contains(5) << std::endl;
         std::cout << "Contains 4: " << ds.contains(4) << std::endl;
         std::cout << "Insert 5: " << ds.insert(5) << std::endl;
         std::cout << "Contains 5: " << ds.contains(5) << std::endl;
         std::cout << "Contains 4: " << ds.contains(4) << std::endl;
-        std::cout << "Remove 5" << ds.remove(5) << std::endl;
+        std::cout << "Remove 5: " << ds.remove(5) << std::endl;
         std::cout << "Contains 5: " << ds.contains(5) << std::endl;
         std::cout << "Contains 4: " << ds.contains(4) << std::endl;
+        std::cout << "Ending operations..." << std::endl;
     }
 
     /*if (am_host){
