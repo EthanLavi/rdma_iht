@@ -32,14 +32,12 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
     // ROME_CHECK_OK(ROME_RETURN(status), status);
 
     if (is_host_){
-        std::cout << "Entering host branch" << std::endl;
         // Host machine, it is my responsibility to initiate configuration
 
         // Allocate data in pool
 		RemoteObjectProto proto;
         remote_plist iht_root = pool_.Allocate<PList>();
-        iht_root->Init(&pool_);
-        std::cout << "Allocated PLIST" << std::endl;
+        InitPList(iht_root);
         this->root = iht_root;
         proto.set_raddr(iht_root.address());
 

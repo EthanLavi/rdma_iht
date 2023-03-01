@@ -30,14 +30,14 @@ private:
     MemoryPool pool_;
 
     // "Poor-mans" enum to represent the state of a node. P-lists cannot be locked 
-    static const uint64_t E_LOCKED = 0;
-    static const uint64_t E_UNLOCKED = 1;
-    static const uint64_t P_UNLOCKED = 2;
+    const uint64_t E_LOCKED = 0;
+    const uint64_t E_UNLOCKED = 1;
+    const uint64_t P_UNLOCKED = 2;
 
     // "Super class" for the elist and plist structs
     struct Base {};
     typedef remote_ptr<Base> remote_baseptr;
-    typedef remote_ptr<uint64_t> remote_lock;
+    typedef remote_ptr<std::atomic<uint64_t>> remote_lock;
 
     // ElementList stores a bunch of K/V pairs. IHT employs a "seperate chaining"-like approach. 
     // Rather than storing via a linked list (with easy append), it uses a fixed size array
@@ -66,18 +66,18 @@ private:
         pair_t buckets[PLIST_SIZE]; // Pointer lock pairs
 
         PList(){}
-
-        void Init(MemoryPool* pool){
-            for (size_t i = 0; i < PLIST_SIZE; i++){
-                std::cout << i << std::endl;
-                pool->AtomicSwap(buckets[i].lock, E_UNLOCKED);
-                buckets[i].base = remote_nullptr;
-            }
-        }
     };
 
     typedef remote_ptr<PList> remote_plist;    
     typedef remote_ptr<EList> remote_elist;
+
+    void InitPList(remote_plist p){
+        for (size_t i = 0; i < PLIST_SIZE; i++){
+            p->buckets[i].lock = pool_.Allocate<std::atomic<uint64_t>>();
+            *(p->buckets[i].lock) = E_UNLOCKED;
+            p->buckets[i].base = remote_nullptr;
+        }
+    }
 
     const size_t elist_size; // Size of all elists // TODO: Replace variable use with define for now
     const size_t plist_size; // Size of all plists
@@ -87,12 +87,13 @@ private:
     bool acquire(remote_lock lock){
         // Spin while trying to acquire the lock
         while (true){
-            remote_lock v_ptr = pool_.Read<uint64_t>(lock);
-            uint64_t v = *std::to_address(v_ptr);
+            // remote_lock v_ptr = pool_.Read<uint64_t>(lock);
+            uint64_t v = (*lock).load();
 
             // If we can switch from unlock to lock status
             // CompareAndSwap(remote_ptr<T> ptr, uint64_t expected, uint64_t swap);
-            if (v == E_UNLOCKED && pool_.CompareAndSwap(lock, v, E_LOCKED)){
+            // && pool_.CompareAndSwap(lock, v, E_LOCKED) == E_LOCKED
+            if (v == E_UNLOCKED && (*lock).compare_exchange_weak(v, E_LOCKED)){
                 return true;
             }
 
@@ -116,7 +117,7 @@ private:
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
         // TODO: the plist size should double in size
         remote_plist new_p = pool_.Allocate<PList>();
-        new_p->Init(&pool_);
+        InitPList(new_p);
 
         // hash everything from the full elist into it
         remote_elist source = static_cast<remote_elist>(parent->buckets[pidx].base);
@@ -143,6 +144,7 @@ public:
     bool contains(int value){
         // start at root
         remote_plist curr = root;
+        std::cout << "Remote PList: " << curr.address() << std::endl;
         size_t depth = 1, count = plist_size;
         while (true) {
             uint64_t bucket = level_hash(value, depth) % count;
@@ -158,7 +160,7 @@ public:
             // Past this point we have recursed to an elist
             if (curr->buckets[bucket].base == remote_nullptr){
                 // empty elist
-                pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                 return false;
             }
 
@@ -167,13 +169,13 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the value
                 if (e->pairs[i] == value){
-                    pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                    *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                     return true;
                 }
             }
 
             // Can't find, unlock and return fasle
-            pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+            *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
             return false;
         }
     }
@@ -199,7 +201,7 @@ public:
                 e->elist_insert(value);
                 remote_baseptr e_base = static_cast<remote_baseptr>(e);
                 curr->buckets[bucket].base = e_base;
-                pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                 // successful insert
                 return true;
             }
@@ -208,7 +210,7 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the value
                 if (e->pairs[i] == value){
-                    pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                    *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                     return false;
                 }
             }
@@ -216,14 +218,14 @@ public:
             if (e->count < elist_size) {
                 // Check for enough insertion room -- insert, unlock, return
                 e->elist_insert(value);
-                pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                 return true;
             }
 
             // Need more room so rehash into plist and perma-unlock
             remote_plist p = rehash(curr, count, depth, bucket);
             curr->buckets[bucket].base = static_cast<remote_baseptr>(p);
-            pool_.AtomicSwap(curr->buckets[bucket].lock, P_UNLOCKED);
+            *std::to_address(curr->buckets[bucket].lock) = P_UNLOCKED;
         }
     }
     
@@ -244,7 +246,7 @@ public:
             // Past this point we have recursed to an elist
             if (curr->buckets[bucket].base == remote_nullptr){
                 // empty elist
-                pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                 return false;
             }
 
@@ -258,13 +260,13 @@ public:
                         e->pairs[i] = e->pairs[e->count - 1];
                     }
                     e->count -= 1;
-                    pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                    *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
                     return true;
                 }
             }
 
             // Can't find, unlock and return fasle
-            pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+            *std::to_address(curr->buckets[bucket].lock) = E_UNLOCKED;
             return false;
         }
     }

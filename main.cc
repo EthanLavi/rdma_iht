@@ -22,6 +22,13 @@ constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
 
+void test_output(int actual, int expected, std::string message){
+    if (actual != expected){
+        std::cout << message << " func(): " << actual << " expected=" << expected << std::endl;
+        exit(1);
+    }
+}
+
 int main(){
     ROME_INIT_LOG();
 
@@ -53,19 +60,31 @@ int main(){
     ds.Init(host, peers);
 
     if (am_host){
-        std::cout << "Starting operations..." << std::endl;
-        std::cout << "Contains 5: " << ds.contains(5) << std::endl;
-        std::cout << "Contains 4: " << ds.contains(4) << std::endl;
-        std::cout << "Insert 5: " << ds.insert(5) << std::endl;
-        std::cout << "Contains 5: " << ds.contains(5) << std::endl;
-        std::cout << "Contains 4: " << ds.contains(4) << std::endl;
-        std::cout << "Remove 5: " << ds.remove(5) << std::endl;
-        std::cout << "Contains 5: " << ds.contains(5) << std::endl;
-        std::cout << "Contains 4: " << ds.contains(4) << std::endl;
-        std::cout << "Ending operations..." << std::endl;
+        std::cout << "Starting Test Cases..." << std::endl;
+        test_output(ds.contains(5), 0, "Contains 5");
+        test_output(ds.contains(4), 0, "Contains 4");
+        test_output(ds.insert(5), 1, "Insert 5");
+        
+        test_output(ds.contains(5), 1, "Contains 5");
+        test_output(ds.contains(4), 0, "Contains 4");
+
+        test_output(ds.remove(5), 1, "Remove 5");
+        test_output(ds.contains(5), 0, "Contains 5");
+        test_output(ds.contains(4), 0, "Contains 4");
+
+        for(int i = 10; i < 10000; i++){
+            // ds.insert(i);
+        }
+
+        // test_output(ds.contains(1000), 1, "Contains 1000");
+        // test_output(ds.contains(10), 1, "Contains 10");
+
+        std::cout << "All cases passed" << std::endl;
     }
 
-    /*if (am_host){
+    /*std::cout << "Any output?" << std::endl;
+
+    if (am_host){
         for(int i = 0; i < 1000; i++){
             ds.insert(i);
         }
@@ -73,14 +92,9 @@ int main(){
     } else {
         int j;
         for(j = 1000; j > 0; j--){
-            if (ds.contains(j)){
-                std::cout << j << std::endl;
-                break;
-            }
+            std::cout << j << "J-test:" << ds.contains(j) << std::endl;
         }
-        if (j == 0){
-            std::cout << "Contains error" << std::endl;
-        }
-    }*/ /* Advanced Test Case */
+        std::cout << "J-error testing: " << j << std::endl;
+    } */ /* Advanced Test Case */
     return 0;
 }

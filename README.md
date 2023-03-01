@@ -54,7 +54,12 @@ By changing tool_path for gcc on line 74 from /usr/bin/clang to /usr/bin/clang-1
 
 ### Other issues
 
-None
+```
+libc++abi: terminating with uncaught exception of type std::out_of_range: unordered_map::at: key not found
+```
+Found issue with setting remote pointer. Had to change atomic swap out for ```*(std::to_address(rp)) = value```<br>
+Though found it had issues in other places too.
+<br><br>
 
 ## Configuring Your Enviornment For Development
 
