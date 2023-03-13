@@ -57,8 +57,8 @@ By changing tool_path for gcc on line 74 from /usr/bin/clang to /usr/bin/clang-1
 ```
 libc++abi: terminating with uncaught exception of type std::out_of_range: unordered_map::at: key not found
 ```
-Found issue with setting remote pointer. Had to change atomic swap out for ```*(std::to_address(rp)) = value```<br>
-Though found it had issues in other places too.
+Found issue with setting remote pointer. Had to use normal pointer code ```*(std::to_address(rp)) = value```<br>
+Explanation: It's necessary to write code differently for the host and the peer. It seems I have to use Read, Write, AtomicSwap, CompareAndSwap, etc, only when the code is peer.
 <br><br>
 
 ## Configuring Your Enviornment For Development
@@ -71,5 +71,5 @@ Though found it had issues in other places too.
         - gtest (/usr/local/include/gtest)
     - protos () <i>[Protocol Buffer Source](https://github.com/protocolbuffers/protobuf)</i>
 
-> Note to VSCode users. Edit the include path setting to allow for better Intellisense
+> Note for VSCode. Edit the include path setting to allow for better Intellisense
    

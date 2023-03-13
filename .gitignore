@@ -33,3 +33,6 @@
 
 # Results should be ignored
 results/
+
+# Mac DS store
+.DS_Store
