@@ -12,26 +12,29 @@ A Rome based IHT implementation.
 
 ## Deploying
 
+### Normal Deploy
+
 1. Check availability
 2. Create experiment
 3. Select Ubuntu 20.04 (OS), r320 (Node Type), name (Experiment Name), hours (Duration)
 4. Edit ./rome/scripts/nodefiles/r320.csv with data from listview
-5. Wait while configuring
+5. conda activate rdma. And then wait while configuring.
 6. cd into ./rome/scripts
 7. [ONCE FINISHED] Run sync command to check availability
 ```{bash}
 python rexec.py --nodefile=nodefiles/r320.csv  --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync
 ```
-8. ssh into a node and check your files are present
-```{bash}
-ssh esl225@apt###.apt.emulab.net
-```
+8. Check logs at /tmp/rome/logs for success
 9. Run start up script
 ```{bash}
-python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync --cmd="cd RDMA/rome/scripts/setup && python3 run.py --resources all"
+python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync --cmd="cd RDMA/rome/scripts/setup && python3 run.py --resources all && sudo apt install perftest -y"
 ```
-10. Wait while configuring
-11. [ONCE FINISHED] Login to nodes or continue to run C&C from cmd line.
+10. Wait while configuring. Can check /tmp/rome/logs for updates.
+11. [ONCE FINISHED] Login to nodes or continue to run C&C using launch.py
+
+### Running in GDB
+
+```gdb -ex run -ex bt -ex q -ex y --args bazel-bin/main```
 
 ## Errors
 
@@ -57,8 +60,15 @@ By changing tool_path for gcc on line 74 from /usr/bin/clang to /usr/bin/clang-1
 ```
 libc++abi: terminating with uncaught exception of type std::out_of_range: unordered_map::at: key not found
 ```
-Found issue with setting remote pointer. Had to use normal pointer code ```*(std::to_address(rp)) = value```<br>
-Explanation: It's necessary to write code differently for the host and the peer. It seems I have to use Read, Write, AtomicSwap, CompareAndSwap, etc, only when the code is peer.
+This happens when we try to use the RDMA API to deal with remote pointers 'pointing' to ourselves...
+<br><br>
+
+
+Spontaneous Issue:
+```
+[2023-03-14 16:4508 thread:60254] [critical] [external/rome/rome/rdma/memory_pool/memory_pool_impl.h:256] ibv_poll_cq(): remote access error @ (id=0, address=0x7fbe86c10800)
+```
+This happens if the server shuts off before the client finishes!
 <br><br>
 
 ## Configuring Your Enviornment For Development
@@ -70,6 +80,10 @@ Explanation: It's necessary to write code differently for the host and the peer.
         - gmock (/usr/local/include/gmock) 
         - gtest (/usr/local/include/gtest)
     - protos () <i>[Protocol Buffer Source](https://github.com/protocolbuffers/protobuf)</i>
+        - Compiling protoc -I=. --cpp_out=../../include file.proto
+        - Also adding path ```~/INSTALL/protobuf/src```
+        - https://chromium.googlesource.com/external/github.com/protocolbuffers/protobuf/+/refs/tags/v3.7.1/src
+
 
 > Note for VSCode. Edit the include path setting to allow for better Intellisense
    

@@ -18,18 +18,22 @@ using rome::rdma::remote_nullptr;
 using rome::rdma::remote_ptr;
 using rome::rdma::RemoteObjectProto;
 
-RdmaIHT::RdmaIHT(MemoryPool::Peer self, 
-                std::unique_ptr<MemoryPool::cm_type> cm, struct config confs) 
-                : self_(self), pool_(self, std::move(cm)), elist_size(confs.elist_size), plist_size(confs.plist_size) {}
+RdmaIHT::RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm, struct config confs) 
+: self_(self),  pool_(self, std::move(cm)), elist_size(confs.elist_size), plist_size(confs.plist_size) {
+    ROME_INFO("Called RDMA IHT Constructor");
+}
 
 
-void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
-
+absl::Status RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
     is_host_ = self_.id == host.id;
     uint32_t block_size = 1 << 20;
 
-    auto status = pool_.Init(block_size, peers);
-    // ROME_CHECK_OK(ROME_RETURN(status), status);
+    ROME_INFO("is_host:{} sid:{} hid:{}", is_host_, self_.id, host.id);
+    ROME_INFO("Size of peers: {}", peers.size());
+
+    absl::Status status = pool_.Init(block_size, peers);
+    ROME_INFO("Status: {}", status.ok());
+    ROME_CHECK_OK(ROME_RETURN(status), status);
 
     if (is_host_){
         // Host machine, it is my responsibility to initiate configuration
@@ -37,7 +41,8 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
         // Allocate data in pool
 		RemoteObjectProto proto;
         remote_plist iht_root = pool_.Allocate<PList>();
-        InitPList(iht_root);
+        ROME_INFO("PList pointer server side: {} @{}", iht_root.id(), iht_root.address());
+        InitPList(iht_root);    
         this->root = iht_root;
         proto.set_raddr(iht_root.address());
 
@@ -45,11 +50,11 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
         for (auto p = peers.begin(); p != peers.end(); p++){
             // Form a connection with the machine
             auto conn_or = pool_.connection_manager()->GetConnection(p->id);
-            // ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
+            ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
 
             // Send the proto over
             status = conn_or.value()->channel()->Send(proto);
-            // ROME_CHECK_OK(ROME_RETURN(status), status);
+            ROME_CHECK_OK(ROME_RETURN(status), status);
         }
     } else {
         // Listen for a connection
@@ -65,7 +70,13 @@ void RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &p
 
         // From there, decode the data into a value
         remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
-        remote_plist value_ptr = pool_.Read<PList>(iht_root);
-        this->root = value_ptr;
+        this->root = iht_root;
     }
+
+    // Sleep for a second to test warmup
+    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+
+    ROME_INFO("Init finished");
+
+    return absl::OkStatus();
 }
