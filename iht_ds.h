@@ -270,25 +270,27 @@ public:
         size_t depth = 1, count = plist_size;
         while (true) {
             uint64_t bucket = level_hash(value, depth) % count;
+            remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
+            remote_ptr<remote_baseptr> bucket_ptr = bucket_base.id() == self_.id ? bucket_base : pool_.Read<remote_baseptr>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
                 // Can't lock then we are at a sub-plist
-                remote_baseptr ptr = *std::to_address(pool_.Read<remote_baseptr>(curr->buckets[bucket].base));
-                curr = static_cast<remote_plist>(ptr);
+                // Might have to do another read here. For now its fine because we aren't rehashing
+                curr = static_cast<remote_plist>(*std::to_address(bucket_ptr));
                 depth++;
                 count *= 1; // TODO: Change back to 2 when we expand PList size
                 continue;
             }
 
             // Past this point we have recursed to an elist
-            if (curr->buckets[bucket].base == remote_nullptr){
-                // empty elist
+            if (*std::to_address(bucket_ptr) == remote_nullptr){
+                // empty elist, can just unlock and return false
                 pool_.AtomicSwap<uint64_t>(curr->buckets[bucket].lock, E_UNLOCKED);
                 return false;
             }
 
             // Get elist and linear search
-            remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
-            remote_elist e = static_cast<remote_elist>(bucket_base.id() == self_.id ? *bucket_base : *std::to_address(pool_.Read<remote_baseptr>(bucket_base)));
+            // Need to do a conditional read here because bucket_ptr might be ours. Basically we read the EList locally
+            remote_elist e = static_cast<remote_elist>(bucket_ptr.id() == self_.id ? *bucket_ptr : pool_.Read<Base>(*std::to_address(bucket_ptr)));
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the value
                 if (e->pairs[i] == value){
@@ -298,7 +300,7 @@ public:
                     }
                     e->count -= 1;
                     // If we are modifying the local copy, we need to write to the remote at the end...
-                    if (bucket_base.id() != self_.id) pool_.Write<EList>(static_cast<remote_elist>(bucket_base), *e);
+                    if (bucket_ptr.id() != self_.id) pool_.Write<Base>(*std::to_address(bucket_ptr), *e);
                     pool_.AtomicSwap<uint64_t>(curr->buckets[bucket].lock, E_UNLOCKED);
                     return true;
                 }

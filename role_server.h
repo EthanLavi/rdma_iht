@@ -68,6 +68,8 @@ public:
     ROME_INFO("Status: {}", status.ok());
     ROME_CHECK_OK(ROME_RETURN(status), status);
     ROME_INFO("We initialized the iht!");
+    // Wait for clients to finish!!!!
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
     return absl::OkStatus();
   }
 

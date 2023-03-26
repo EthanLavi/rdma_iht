@@ -54,8 +54,6 @@ int main(){
         std::unique_ptr<Server> server = Server::Create(host, peers, confs);
         absl::Status status = server->LaunchTestLoopback();
         ROME_INFO("Starting server is ok? {}", status.ok());
-        // Wait for clients to finish!!!!
-        std::this_thread::sleep_for(std::chrono::milliseconds(10000));
     }
 
     /*std::cout << "Any output?" << std::endl;

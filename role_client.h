@@ -132,10 +132,13 @@ public:
   }
 
   absl::Status Operations(){
+    test_output(iht_->contains(5), 0, "Contains 5");
+    test_output(iht_->contains(4), 0, "Contains 4");
     test_output(iht_->insert(5), 1, "Insert 5");
     test_output(iht_->contains(5), 1, "Contains 5");
     test_output(iht_->contains(4), 0, "Contains 4");
     test_output(iht_->remove(5), 1, "Remove 5");
+    test_output(iht_->remove(4), 0, "Remove 4");
     test_output(iht_->contains(5), 0, "Contains 5");
     test_output(iht_->contains(4), 0, "Contains 4");
     ROME_INFO("All cases passed");
