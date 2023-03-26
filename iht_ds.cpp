@@ -73,9 +73,6 @@ absl::Status RdmaIHT::Init(MemoryPool::Peer host, const std::vector<MemoryPool::
         this->root = iht_root;
     }
 
-    // Sleep for a second to test warmup
-    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-
     ROME_INFO("Init finished");
 
     return absl::OkStatus();

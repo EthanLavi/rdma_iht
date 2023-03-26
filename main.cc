@@ -16,8 +16,8 @@
 using ::rome::rdma::MemoryPool;
 using ::rome::rdma::ConnectionManager;
 
-constexpr char iphost[] = "10.10.1.1";
-constexpr char ippeer[] = "10.10.1.2";
+constexpr char iphost[] = "node0";
+constexpr char ippeer[] = "node1";
 
 constexpr uint16_t portNum = 18000;
 
@@ -42,8 +42,9 @@ int main(){
         peers.push_back(host);
         am_host = false;
         std::unique_ptr<Client> client = Client::Create(receiver, host, peers);
-        bool done = false;
-        client->Start(); // start the client. Don't use when using Run
+        // bool done = false;
+        absl::Status init_status = client->Start(); // start the client. Don't use when using Run
+        ROME_DEBUG("Init client is ok? {}", init_status.ok());
         absl::Status status = client->Operations(); // client->Run(std::move(client), &done);
         ROME_DEBUG("Starting client is ok? {}", status.ok());
     } else {
