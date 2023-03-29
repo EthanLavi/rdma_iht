@@ -371,4 +371,9 @@ public:
             return false;
         }
     }
+
+    void populate(int n, K* keys, V* values){
+        for (int i = 0; i < n; i++)
+            this->insert(keys[i], values[i]);
+    }
 };
