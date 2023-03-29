@@ -45,15 +45,18 @@ int main(){
         // bool done = false;
         absl::Status init_status = client->Start(); // start the client. Don't use when using Run
         ROME_DEBUG("Init client is ok? {}", init_status.ok());
-        absl::Status status = client->Operations(); // client->Run(std::move(client), &done);
+        absl::Status status = client->Operations(); // absl::Status status = client->Run(std::move(client), &done);
         ROME_DEBUG("Starting client is ok? {}", status.ok());
+        absl::Status stop_status = client->Stop();
+        ROME_DEBUG("Stopping client is ok? {}", stop_status.ok());
     } else {
         // we are node0, the host
         peers.push_back(receiver);
         am_host = true;
         std::unique_ptr<Server> server = Server::Create(host, peers, confs);
-        absl::Status status = server->LaunchTestLoopback();
-        ROME_INFO("Starting server is ok? {}", status.ok());
+        bool done = false;
+        absl::Status status = server->Launch(&done, 0);
+        ROME_DEBUG("Starting server is ok? {}", status.ok());
     }
 
     /*std::cout << "Any output?" << std::endl;

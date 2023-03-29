@@ -32,16 +32,12 @@ def execute(commands):
             if FLAGS.dry_run:
                 print(cmd)
             else:
-                c = 0
-                while c < 100:
-                    try:
-                        subprocess.run(cmd, shell=True, check=True, stderr=f, stdout=f)
-                        print("Successful Startup")
-                        return
-                    except subprocess.CalledProcessError:
-                        print("Invalid Startup")
-                        c += 1
-
+                try:
+                    subprocess.run(cmd, shell=True, check=True, stderr=f, stdout=f)
+                    print("Successful Startup")
+                    return
+                except subprocess.CalledProcessError:
+                    print("Invalid Startup")
 
     processes: List[Process] = []
     for cmd, file in commands:
@@ -75,7 +71,8 @@ def main(args):
             nodename, nodealias, nodetype = node
             # Construct ssh command and payload
             ssh_login = f"ssh -i {FLAGS.ssh_keyfile} {FLAGS.ssh_user}@{nodealias}.{domain_name(nodetype)}"
-            payload = f"'cd {FLAGS.bin_dir}; bazel build main; bazel run main'"
+            bazel_path = f"/users/{FLAGS.ssh_user}/go/bin/bazelisk"
+            payload = f"'cd {FLAGS.bin_dir}; {bazel_path} run main'"
             # Tuple: (Creating Command | Output File Name)
             commands.append((' '.join([ssh_login, payload]), nodename))
     # Execute the commands and let us know we've finished

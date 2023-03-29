@@ -2,23 +2,19 @@
 
 #include <barrier>
 #include <chrono>
-#include <filesystem>
-#include <memory>
-#include <unordered_map>
+#include "rome/rdma/connection_manager/connection_manager.h"
+#include "rome/rdma/memory_pool/memory_pool.h"
 #include "rome/colosseum/client_adaptor.h"
 #include "rome/colosseum/streams/streams.h"
 #include "rome/colosseum/qps_controller.h"
 #include "rome/colosseum/workload_driver.h"
-
 #include "rome/util/clocks.h"
-
 #include "iht_ds.h"
-#include "rome/rdma/connection_manager/connection_manager.h"
-#include "rome/rdma/memory_pool/memory_pool.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
+using ::rome::rdma::RemoteObjectProto;
 
 // Function to run a test case
 void test_output(int actual, int expected, std::string message){
@@ -45,7 +41,7 @@ public:
     exit(1);
   }
 
-  /*static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
+  static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
     //Signal Handler
     signal(SIGINT, signal_handler);
     
@@ -53,7 +49,6 @@ public:
     std::unique_ptr<rome::LeakyTokenBucketQpsController<util::SystemClock>>
         qps_controller =
           rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(-1);
-    
 
     // auto *client_ptr = client.get();
 
@@ -63,9 +58,6 @@ public:
         qps_controller.get(),
         std::chrono::milliseconds(10));
     ROME_ASSERT_OK(driver->Start());
-    
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    //Just sleep here for 10 seconds
     ROME_INFO("Stopping client...");
     ROME_ASSERT_OK(driver->Stop());
 
@@ -80,10 +72,6 @@ public:
     // (see https://github.com/jacnel/project-x/issues/15)
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     return absl::OkStatus();
-  }*/
-
-  static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
-    return absl::OkStatus();
   }
 
   // Start the client
@@ -97,6 +85,7 @@ public:
   }
 
   // Runs the next operation
+  // TODO: Make this function do bulk operations.
   absl::Status Apply(const rome::NoOp &op) override {
     count++;
     switch (count){
@@ -107,7 +96,7 @@ public:
         test_output(iht_->contains(4), 0, "Contains 4");
         break;
       case 3:
-        test_output(iht_->insert(5), 1, "Insert 5");
+        test_output(iht_->insert(5, 10), 1, "Insert 5");
         break;
       case 4:
         test_output(iht_->contains(5), 1, "Contains 5");
@@ -131,24 +120,43 @@ public:
     return absl::OkStatus();
   }
 
+  /// @brief Runs single-client silent-server test cases on the iht
+  /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(){
     test_output(iht_->contains(5), 0, "Contains 5");
     test_output(iht_->contains(4), 0, "Contains 4");
-    test_output(iht_->insert(5), 1, "Insert 5");
+    test_output(iht_->insert(5, 10), 1, "Insert 5");
+    test_output(iht_->insert(5, 11), 0, "Insert 5 again should fail");
+    test_output(iht_->result, 10, "Insert 5's failure, (result == old == 10)");
+    iht_->result = 0;
     test_output(iht_->contains(5), 1, "Contains 5");
+    test_output(iht_->result, 10, "Contains 5 (result == 10)");
+    iht_->result = 0;
     test_output(iht_->contains(4), 0, "Contains 4");
     test_output(iht_->remove(5), 1, "Remove 5");
+    test_output(iht_->result, 10, "Remove 5 (result == 10)");
     test_output(iht_->remove(4), 0, "Remove 4");
     test_output(iht_->contains(5), 0, "Contains 5");
     test_output(iht_->contains(4), 0, "Contains 4");
     ROME_INFO("All cases passed");
-
     return absl::OkStatus();
   }
 
-// Not implemented yet
+  // A function for communicating with the server that we are done. Will wait until server says it is ok to shut down
   absl::Status Stop() override {
-    // TODO: IMPLEMENT
+    auto conn = iht_->pool_.connection_manager()->GetConnection(host_.id);
+    ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
+    RemoteObjectProto e;
+    
+    auto sent = conn.value()->channel()->Send(e); // send the ack to let the server know that we are done
+
+    // Wait to receive an ack back. Letting us know that the other clients are done.
+    auto msg = conn.value()->channel()->TryDeliver<RemoteObjectProto>();
+    while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
+        msg = conn.value()->channel()->TryDeliver<RemoteObjectProto>();
+    }
+
+    // Return ok status
     return absl::OkStatus();
   }
 
@@ -157,7 +165,7 @@ private:
       : self_(self), host_(host), 
         peers_(peers) {
           struct config confs{8, 128};
-          iht_ = std::make_unique<RdmaIHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id), confs);
+          iht_ = std::make_unique<RdmaIHT<int, int>>(self_, std::make_unique<MemoryPool::cm_type>(self.id), confs);
         }
 
   int count = 0;
@@ -165,6 +173,6 @@ private:
   const MemoryPool::Peer self_;
   const MemoryPool::Peer host_;
   std::vector<MemoryPool::Peer> peers_;
-  std::unique_ptr<RdmaIHT> iht_;
+  std::unique_ptr<RdmaIHT<int, int>> iht_;
   // std::barrier<> *barrier_;
 };

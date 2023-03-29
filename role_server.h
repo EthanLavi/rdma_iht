@@ -7,15 +7,7 @@
 #include "rome/rdma/memory_pool/memory_pool.h"
 
 using ::rome::rdma::MemoryPool;
-
-// Function to run a test case
-/*void test_output(int actual, int expected, std::string message){
-    if (actual != expected){
-      ROME_INFO("{} func():{} != expected:{}", message, actual, expected);
-    } else {
-      ROME_INFO("Test Case {} Passed!", message);
-    }
-}*/
+using ::rome::rdma::RemoteObjectProto;
 
 class Server {
 public:
@@ -28,48 +20,42 @@ public:
   absl::Status Launch(volatile bool *done, int runtime_s) {
     ROME_INFO("Starting server...");
     // Starts Connection Manager and connects to peers
-    // auto status = iht_->Init(self_, peers_);
-    // ROME_CHECK_OK(ROME_RETURN(status), status);
+    iht_ = std::make_unique<RdmaIHT<int, int>>(self_, std::move(cm_), confs_);
+    auto status = iht_->Init(self_, peers_);
+    ROME_CHECK_OK(ROME_RETURN(status), status);
     ROME_INFO("We initialized the iht!");
-    return absl::OkStatus();
 
-    /*
     // Sleep while clients are running if there is a set runtime.
     if (runtime_s > 0) {
-      auto runtime = std::chrono::seconds();
-      std::this_thread::sleep_for(runtime);
-      *done = true; // Just run once
+      // auto runtime = std::chrono::seconds();
+      // std::this_thread::sleep_for(runtime);
+      // *done = true; // Just run once
     }
 
     // Wait for all clients to be done.
     for (auto &p : peers_) {
-      auto conn_or = pool_.connection_manager()->GetConnection(p.id);
+      auto conn_or = iht_->pool_.connection_manager()->GetConnection(p.id);
       if (!conn_or.ok())
         return conn_or.status();
 
       auto *conn = conn_or.value();
-      auto msg = conn->channel()->TryDeliver<AckProto>();
-      while ((!msg.ok() &&
-              msg.status().code() == absl::StatusCode::kUnavailable)) {
-        msg = conn->channel()->TryDeliver<AckProto>();
+      auto msg = conn->channel()->TryDeliver<RemoteObjectProto>();
+      while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
+        msg = conn->channel()->TryDeliver<RemoteObjectProto>();
       }
     }
-    return absl::OkStatus();
-    */
-  }
 
-  /// Launch test on loopback
-  absl::Status LaunchTestLoopback() {
-    ROME_INFO("Starting server...");
-    // Starts Connection Manager and connects to peers
-    iht_ = std::make_unique<RdmaIHT>(self_, std::move(cm_), confs_);
-    ROME_INFO("IHT Address Created");
-    auto status = iht_->Init(self_, peers_); 
-    ROME_INFO("Status: {}", status.ok());
-    ROME_CHECK_OK(ROME_RETURN(status), status);
-    ROME_INFO("We initialized the iht!");
-    // Wait for clients to finish!!!!
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    // Let all clients know that we are done
+    for (auto &p : peers_) {
+      auto conn_or = iht_->pool_.connection_manager()->GetConnection(p.id);
+      if (!conn_or.ok())
+        return conn_or.status();
+      auto *conn = conn_or.value();
+      RemoteObjectProto e;
+      // Send back an ack proto let the client know that all the other clients are done
+      auto sent = conn->channel()->Send(e);
+    }
+
     return absl::OkStatus();
   }
 
@@ -82,6 +68,6 @@ private:
   const MemoryPool::Peer self_;
   std::vector<MemoryPool::Peer> peers_;
   std::unique_ptr<MemoryPool::cm_type> cm_;
-  std::unique_ptr<RdmaIHT> iht_;
+  std::unique_ptr<RdmaIHT<int, int>> iht_;
   struct config confs_;
 };

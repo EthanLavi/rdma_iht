@@ -29,11 +29,11 @@ struct config {
 #define ELIST_SIZE 8
 #define PLIST_SIZE 128
 
+template<class K, class V>
 class RdmaIHT {
 private:
     bool is_host_;
     MemoryPool::Peer self_;
-    MemoryPool pool_;
 
     // "Poor-mans" enum to represent the state of a node. P-lists cannot be locked 
     const uint64_t E_LOCKED = 0;
@@ -48,17 +48,17 @@ private:
     // ElementList stores a bunch of K/V pairs. IHT employs a "seperate chaining"-like approach.
     // Rather than storing via a linked list (with easy append), it uses a fixed size array
     struct EList : Base {
-        /*struct pair_t {
-            int key;
-            int val;
-        };*/
+        struct pair_t {
+            K key;
+            V val;
+        };
 
         size_t count = 0; // The number of live elements in the Elist
-        int pairs[ELIST_SIZE]; // A list of pairs to store (stored as remote pointer to start of the contigous memory block)
+        pair_t pairs[ELIST_SIZE]; // A list of pairs to store (stored as remote pointer to start of the contigous memory block)
         
         // Insert into elist a int
-        void elist_insert(const int &key){
-            pairs[count] = key;
+        void elist_insert(const K &key, const V &val){
+            pairs[count] = {key, val};
             ++count;
         }
 
@@ -76,10 +76,6 @@ private:
         };
 
         pair_t buckets[PLIST_SIZE]; // Pointer lock pairs
-
-        PList(){
-            ROME_INFO("Running PList Constructor!");
-        }
     };
 
     typedef remote_ptr<PList> remote_plist;    
@@ -101,7 +97,7 @@ private:
     const size_t elist_size; // Size of all elists
     const size_t plist_size; // Size of all plists
     remote_ptr<PList> root;  // Start of plist
-    std::hash<int> pre_hash; // Hash function from k -> size_t [this currently does nothing :: though included for templating this class]
+    std::hash<K> pre_hash; // Hash function from k -> size_t [this currently does nothing as the value of the int can just be returned :: though included for templating this class]
     
     bool acquire(remote_lock lock){
         // Spin while trying to acquire the lock
@@ -127,7 +123,7 @@ private:
     }
 
     // Hashing function to decide bucket size
-    uint64_t level_hash(const int &key, size_t level){
+    uint64_t level_hash(const K &key, size_t level){
         return level ^ pre_hash(key);
     }
 
@@ -158,18 +154,72 @@ private:
         return new_p;*/
     }
 public:
+    MemoryPool pool_;
+    K result = 0; // value to modify upon completing an operation. Might as well grab the previous value if we are there. 
+
     using conn_type = MemoryPool::conn_type;
 
-    RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm, struct config confs);
+    RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm, struct config confs) : self_(self), elist_size(confs.elist_size), plist_size(confs.plist_size), pool_(self, std::move(cm)){};
 
-    absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers);
+    absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
+        is_host_ = self_.id == host.id;
+        uint32_t block_size = 1 << 20;
 
-    bool contains(int value){
+        absl::Status status = pool_.Init(block_size, peers);
+        ROME_CHECK_OK(ROME_RETURN(status), status);
+
+        if (is_host_){
+            // Host machine, it is my responsibility to initiate configuration
+
+            // Allocate data in pool
+            RemoteObjectProto proto;
+            remote_plist iht_root = pool_.Allocate<PList>();
+            InitPList(iht_root);    
+            this->root = iht_root;
+            proto.set_raddr(iht_root.address());
+
+            // Iterate through peers
+            for (auto p = peers.begin(); p != peers.end(); p++){
+                // Form a connection with the machine
+                auto conn_or = pool_.connection_manager()->GetConnection(p->id);
+                ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
+
+                // Send the proto over
+                status = conn_or.value()->channel()->Send(proto);
+                ROME_CHECK_OK(ROME_RETURN(status), status);
+            }
+        } else {
+            // Listen for a connection
+            auto conn_or = pool_.connection_manager()->GetConnection(host.id);
+            // ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
+
+            // Try to get the data from the machine, repeatedly trying until successful
+            auto got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
+            while(got.status().code() == absl::StatusCode::kUnavailable) {
+                got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
+            }
+            // ROME_CHECK_OK(ROME_RETURN(got.status()), got);
+
+            // From there, decode the data into a value
+            remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
+            this->root = iht_root;
+        }
+
+        ROME_INFO("Init finished");
+
+        return absl::OkStatus();
+    }
+
+
+    /// @brief Gets a value at the key.
+    /// @param key the key to search on
+    /// @return if the key was found or not. The value at the key is stored in RdmaIHT::result
+    bool contains(K key){
         // start at root
         remote_plist curr = pool_.Read<PList>(root);;
         size_t depth = 1, count = plist_size;
         while (true) {
-            uint64_t bucket = level_hash(value, depth) % count;
+            uint64_t bucket = level_hash(key, depth) % count;
             remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
             remote_ptr<remote_baseptr> bucket_ptr = bucket_base.id() == self_.id ? bucket_base : pool_.Read<remote_baseptr>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
@@ -193,9 +243,10 @@ public:
             // Need to do a conditional read here because bucket_ptr might be ours. Basically we read the EList locally
             remote_elist e = static_cast<remote_elist>(bucket_ptr.id() == self_.id ? *bucket_ptr : pool_.Read<Base>(*std::to_address(bucket_ptr)));
             for (size_t i = 0; i < e->count; i++){
-                // Linear search to determine if elist already contains the value
-                if (e->pairs[i] == value){
+                // Linear search to determine if elist already contains the key
+                if (e->pairs[i].key == key){
                     pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                    result = e->pairs[i].val;
                     return true;
                 }
             }
@@ -206,12 +257,16 @@ public:
         }
     }
     
-    bool insert(int value){
+    /// @brief Insert a key and value into the iht. Result will become the value at the key if already present.
+    /// @param key the key to insert
+    /// @param value the value to associate with the key
+    /// @return if the insert was successful
+    bool insert(K key, V value){
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
         size_t depth = 1, count = plist_size;
         while (true){
-            uint64_t bucket = level_hash(value, depth) % count;
+            uint64_t bucket = level_hash(key, depth) % count;
             remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
             remote_ptr<remote_baseptr> bucket_ptr = bucket_base.id() == self_.id ? bucket_base : pool_.Read<remote_baseptr>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
@@ -227,7 +282,7 @@ public:
             if (*std::to_address(bucket_ptr) == remote_nullptr){
                 // empty elist
                 remote_elist e = pool_.Allocate<EList>();
-                e->elist_insert(value);
+                e->elist_insert(key, value);
                 remote_baseptr e_base = static_cast<remote_baseptr>(e);
                 pool_.Write(bucket_base, e_base); // might need to do a conditional write. For now its fine because we never rehash
                 pool_.AtomicSwap<uint64_t>(curr->buckets[bucket].lock, E_UNLOCKED);
@@ -238,9 +293,10 @@ public:
             // Need to do a conditional read here because bucket_ptr might be ours. Basically we read the EList locally
             remote_elist e = static_cast<remote_elist>(bucket_ptr.id() == self_.id ? *bucket_ptr : pool_.Read<Base>(*std::to_address(bucket_ptr)));
             for (size_t i = 0; i < e->count; i++){
-                // Linear search to determine if elist already contains the value
-                if (e->pairs[i] == value){
-                    // Contains the value => unlock and return false
+                // Linear search to determine if elist already contains the key
+                if (e->pairs[i].key == key){
+                    result = e->pairs[i].val;
+                    // Contains the key => unlock and return false
                     pool_.AtomicSwap<uint64_t>(curr->buckets[bucket].lock, E_UNLOCKED);
                     return false;
                 }
@@ -249,7 +305,7 @@ public:
             // Check for enough insertion room
             if (e->count < elist_size) {
                 // insert, unlock, return
-                e->elist_insert(value);
+                e->elist_insert(key, value);
                 // If we are modifying the local copy, we need to write to the remote at the end...
                 if (bucket_ptr.id() != self_.id) pool_.Write<Base>(*std::to_address(bucket_ptr), *e);
                 pool_.AtomicSwap<uint64_t>(curr->buckets[bucket].lock, E_UNLOCKED);
@@ -264,12 +320,15 @@ public:
         }
     }
     
-    bool remove(int value){
+    /// @brief Will remove a value at the key. Will stored the previous value in result.
+    /// @param key the key to remove at
+    /// @return if the remove was successful
+    bool remove(K key){
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
         size_t depth = 1, count = plist_size;
         while (true) {
-            uint64_t bucket = level_hash(value, depth) % count;
+            uint64_t bucket = level_hash(key, depth) % count;
             remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
             remote_ptr<remote_baseptr> bucket_ptr = bucket_base.id() == self_.id ? bucket_base : pool_.Read<remote_baseptr>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
@@ -293,7 +352,8 @@ public:
             remote_elist e = static_cast<remote_elist>(bucket_ptr.id() == self_.id ? *bucket_ptr : pool_.Read<Base>(*std::to_address(bucket_ptr)));
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the value
-                if (e->pairs[i] == value){
+                if (e->pairs[i].key == key){
+                    result = e->pairs[i].val; // saving the previous value at key
                     if (e->count > 1){
                         // Edge swap if not count=0|1
                         e->pairs[i] = e->pairs[e->count - 1];
