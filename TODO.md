@@ -7,6 +7,7 @@ Version 2: IHT Operations with rehashing
 2. Move away from static PLists
 3. Improve workload driver
 4. Memory Reclaimation (if at all)
+5. Add populate function
 
 Questions:
 * How does Allocate work? Can I provide parameters in it.
