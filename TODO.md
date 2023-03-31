@@ -1,8 +1,10 @@
 # Self TODO List
 Goal: IHT Operations without rehashing
+
 [x] done
 
 Goal: IHT Operations with rehashing
+
 1. Finish rehash functionality
 2. Move away from static PLists
 3. Improve workload driver
