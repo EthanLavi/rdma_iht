@@ -1,16 +1,14 @@
 # Self TODO List
+Goal: IHT Operations without rehashing
+[x] done
 
-[x] Version 1: Get IHT Operations without rehashing. Implications of this are no need to manage remote/local PLists.
-
-Version 2: IHT Operations with rehashing
-1. Implement rehash and refactor functions
+Goal: IHT Operations with rehashing
+1. Finish rehash functionality
 2. Move away from static PLists
 3. Improve workload driver
-4. Memory Reclaimation (if at all)
-5. Add populate function
+4. Finish populate function
 
-Questions:
+Things to look into:
 * How does Allocate work? Can I provide parameters in it.
 * Can I setup a MemoryPool with self as a peer
 * Read makes a copy? Can I do pointer arithmetic?
-* Why is Launch.py not working?
