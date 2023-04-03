@@ -18,4 +18,4 @@ using rome::rdma::remote_nullptr;
 using rome::rdma::remote_ptr;
 using rome::rdma::RemoteObjectProto;
 
-template class RdmaIHT<int, int>;  
+template class RdmaIHT<int, int, 8, 128>;  

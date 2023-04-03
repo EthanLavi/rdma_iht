@@ -16,6 +16,8 @@ using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::rdma::RemoteObjectProto;
 
+typedef RdmaIHT<int, int, 8, 128> IHT;
+
 // Function to run a test case
 void test_output(int actual, int expected, std::string message){
     if (actual != expected){
@@ -165,7 +167,7 @@ private:
       : self_(self), host_(host), 
         peers_(peers) {
           struct config confs{8, 128};
-          iht_ = std::make_unique<RdmaIHT<int, int>>(self_, std::make_unique<MemoryPool::cm_type>(self.id), confs);
+          iht_ = std::make_unique<IHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id), confs);
         }
 
   int count = 0;
@@ -173,6 +175,6 @@ private:
   const MemoryPool::Peer self_;
   const MemoryPool::Peer host_;
   std::vector<MemoryPool::Peer> peers_;
-  std::unique_ptr<RdmaIHT<int, int>> iht_;
+  std::unique_ptr<IHT> iht_;
   // std::barrier<> *barrier_;
 };

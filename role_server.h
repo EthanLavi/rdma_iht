@@ -9,6 +9,8 @@
 using ::rome::rdma::MemoryPool;
 using ::rome::rdma::RemoteObjectProto;
 
+typedef RdmaIHT<int, int, 8, 128> IHT;
+
 class Server {
 public:
   ~Server() = default;
@@ -20,7 +22,7 @@ public:
   absl::Status Launch(volatile bool *done, int runtime_s) {
     ROME_INFO("Starting server...");
     // Starts Connection Manager and connects to peers
-    iht_ = std::make_unique<RdmaIHT<int, int>>(self_, std::move(cm_), confs_);
+    iht_ = std::make_unique<IHT>(self_, std::move(cm_), confs_);
     auto status = iht_->Init(self_, peers_);
     ROME_CHECK_OK(ROME_RETURN(status), status);
     ROME_INFO("We initialized the iht!");
@@ -68,6 +70,6 @@ private:
   const MemoryPool::Peer self_;
   std::vector<MemoryPool::Peer> peers_;
   std::unique_ptr<MemoryPool::cm_type> cm_;
-  std::unique_ptr<RdmaIHT<int, int>> iht_;
+  std::unique_ptr<IHT> iht_;
   struct config confs_;
 };

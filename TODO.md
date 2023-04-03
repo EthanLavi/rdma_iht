@@ -11,6 +11,7 @@ Goal: IHT Operations with rehashing
 4. Finish populate function
 
 Things to look into:
+
 * How does Allocate work? Can I provide parameters in it.
 * Can I setup a MemoryPool with self as a peer
 * Read makes a copy? Can I do pointer arithmetic?

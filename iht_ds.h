@@ -23,13 +23,9 @@ struct config {
     size_t plist_size;
 };
 
-// TODO: Make it be a hashmap and not a hashset
 // TODO: Make allocation of PList be dynamic and not static size
 
-#define ELIST_SIZE 8
-#define PLIST_SIZE 128
-
-template<class K, class V>
+template<class K, class V, int ELIST_SIZE, int PLIST_SIZE>
 class RdmaIHT {
 private:
     bool is_host_;
