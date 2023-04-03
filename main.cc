@@ -5,6 +5,9 @@
 #include <iostream>
 #include <ostream>
 
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/status/status.h"
 #include "role_server.h"
 #include "role_client.h"
 #include "rome/rdma/memory_pool/memory_pool.h"
@@ -18,13 +21,18 @@ using ::rome::rdma::ConnectionManager;
 
 constexpr char iphost[] = "node0";
 constexpr char ippeer[] = "node1";
-
 constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
 
-int main(){
+ABSL_FLAG(bool, send_bulk, false, "If to run bulk operations. (More for benchmarking)");
+ABSL_FLAG(bool, send_test, false, "If to test the functionality of the methods.");
+
+int main(int argc, char** argv){
     ROME_INIT_LOG();
+    absl::ParseCommandLine(argc, argv);
+    bool bulk_operations = absl::GetFlag(FLAGS_send_bulk);
+    bool test_operations = absl::GetFlag(FLAGS_send_test);
 
     MemoryPool::Peer host{0, std::string(iphost), portNum};
     MemoryPool::Peer receiver{1, std::string(ippeer), portNum + 1};
@@ -40,13 +48,18 @@ int main(){
         peers.push_back(host);
         am_host = false;
         std::unique_ptr<Client> client = Client::Create(receiver, host, peers);
-        // bool done = false;
-        absl::Status init_status = client->Start(); // start the client. Don't use when using Run
-        ROME_DEBUG("Init client is ok? {}", init_status.ok());
-        absl::Status status = client->Operations(); // absl::Status status = client->Run(std::move(client), &done);
-        ROME_DEBUG("Starting client is ok? {}", status.ok());
-        absl::Status stop_status = client->Stop();
-        ROME_DEBUG("Stopping client is ok? {}", stop_status.ok());
+        if (bulk_operations){
+            bool done = false;
+            absl::Status run_status = client->Run(std::move(client), &done);
+            ROME_DEBUG("Running the IHT works? {}", run_status.ok());
+        } else if (test_operations) {
+            absl::Status init_status = client->Start();
+            ROME_DEBUG("Init client is ok? {}", init_status.ok());
+            absl::Status status = client->Operations();
+            ROME_DEBUG("Starting client is ok? {}", status.ok());
+            absl::Status stop_status = client->Stop();
+            ROME_DEBUG("Stopping client is ok? {}", stop_status.ok());
+        }
     } else {
         // we are node0, the host
         peers.push_back(receiver);

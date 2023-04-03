@@ -17,7 +17,7 @@ using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::rdma::RemoteObjectProto;
 
-typedef RdmaIHT<int, int, 8, 128> IHT;
+typedef RdmaIHT<int, int, 8, 8> IHT;
 
 // Function to run a test case
 void test_output(int actual, int expected, std::string message){
@@ -57,7 +57,12 @@ public:
 
     // auto *client_ptr = client.get();
     std::vector<Operation> operations = std::vector<Operation>();
-    operations.push_back({0, 0, 0});
+    
+    int WORKLOAD_AMOUNT = 10000;
+    for(int i = 0; i < WORKLOAD_AMOUNT; i++){
+      operations.push_back({INSERT, i, 0});
+    }
+    
     std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
 
     // Create and start the workload driver (also starts client).
@@ -66,8 +71,6 @@ public:
         qps_controller.get(),
         std::chrono::milliseconds(10));
     ROME_ASSERT_OK(driver->Start());
-    ROME_INFO("Stopping client...");
-    ROME_ASSERT_OK(driver->Stop());
 
     // Output results.
     // ResultProto result;
@@ -96,6 +99,7 @@ public:
   // TODO: Make this function do bulk operations.
   absl::Status Apply(const Operation &op) override {
     count++;
+    if (count % 100 == 0) ROME_INFO("Apply called for {}th time", count);
     switch (op.op_type){
       case(CONTAINS):
         iht_->contains(op.key);
@@ -138,6 +142,7 @@ public:
 
   // A function for communicating with the server that we are done. Will wait until server says it is ok to shut down
   absl::Status Stop() override {
+    ROME_INFO("Stopping client...");
     auto conn = iht_->pool_.connection_manager()->GetConnection(host_.id);
     ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
     RemoteObjectProto e;

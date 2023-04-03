@@ -49,7 +49,7 @@ private:
         // Insert into elist a int
         void elist_insert(const K &key, const V &val){
             pairs[count] = {key, val};
-            ++count;
+            count++;
         }
 
         EList(){
@@ -124,11 +124,14 @@ private:
     /// @param pdepth The depth of `parent`
     /// @param pidx   The index in `parent` of the bucket to rehash
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
-        ROME_DEBUG("Rehash called");
-        throw "Rehash not implemented yet";
-        /* // TODO: the plist size should double in size
-        remote_plist new_p = pool_.Allocate<PList>();
-        InitPList(new_p);
+        ROME_INFO("Rehash called");
+        throw "Rehash not implemented yet...";
+        /*
+        // TODO: the plist size should double in size
+        int plist_size_factor = pow(2, pdepth-1); // how much bigger than original size we are 
+        // 2 ^ (depth - 1) ==> in other words (depth:factor). 1:1, 2:2, 3:4, 4:8, 5:16. 
+        remote_plist new_p = pool_.Allocate<PList>(1); // for now, lets keep at 1... until we finish rehash
+        InitPList(new_p, 1);
 
         // hash everything from the full elist into it
         remote_elist source = static_cast<remote_elist>(parent->buckets[pidx].base);
@@ -142,7 +145,8 @@ private:
             dest->elist_insert(source->pairs[i]);
         }
         pool_.Deallocate(source);
-        return new_p;*/
+        return new_p;
+        */
     }
 public:
     MemoryPool pool_;
@@ -195,7 +199,6 @@ public:
             remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
             this->root = iht_root;
         }
-
         ROME_INFO("Init finished");
 
         return absl::OkStatus();

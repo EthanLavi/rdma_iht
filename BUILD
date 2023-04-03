@@ -5,6 +5,9 @@ cc_library(
     hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "operation.h"],
     copts = ["-std=c++2a"],
     deps = [
+        "@absl//absl/flags:flag",
+        "@absl//absl/flags:parse",
+        "@absl//absl/status",
         "@rome//rome/rdma:rdma_memory",
         "@rome//rome/rdma/channel:sync_accessor",
         "@rome//rome/rdma/connection_manager",

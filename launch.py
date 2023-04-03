@@ -22,7 +22,12 @@ flags.DEFINE_string('nodefile', '../rome/scripts/nodefiles/r320.csv', 'Path to c
 flags.DEFINE_string('experiment_name', None, 'Used as local save directory', required=True)
 flags.DEFINE_string('bin_dir', 'RDMA/rdma_iht', 'Directory where we run bazel build from')
 flags.DEFINE_bool('dry_run', required=True, default=None, help='Print the commands instead of running them')
+flags.DEFINE_bool('send_bulk', required=False, default=False, help="Whether to run bulk operations (more for benchmarking)")
+flags.DEFINE_bool('send_test', required=False, default=False, help="Whether to run basic method testing")
 
+
+def quote(string):
+    return f"'{string}'"
 
 def execute(commands):
     """For each command in commands, start a process"""
@@ -72,9 +77,16 @@ def main(args):
             # Construct ssh command and payload
             ssh_login = f"ssh -i {FLAGS.ssh_keyfile} {FLAGS.ssh_user}@{nodealias}.{domain_name(nodetype)}"
             bazel_path = f"/users/{FLAGS.ssh_user}/go/bin/bazelisk"
-            payload = f"'cd {FLAGS.bin_dir}; {bazel_path} run main'"
+            payload = f"cd {FLAGS.bin_dir}; {bazel_path} run main -- "
+            if FLAGS.send_test:
+                payload += "--send_test"
+            elif FLAGS.send_bulk:
+                payload += "--send_bulk"
+            else:
+                print("Must specify whether testing methods '--send_test' or doing bulk operations '--send_bulk'")
+                exit(1)
             # Tuple: (Creating Command | Output File Name)
-            commands.append((' '.join([ssh_login, payload]), nodename))
+            commands.append((' '.join([ssh_login, quote(payload)]), nodename))
     # Execute the commands and let us know we've finished
     execute(commands)
     print("Finished Experiment")

@@ -9,7 +9,7 @@
 using ::rome::rdma::MemoryPool;
 using ::rome::rdma::RemoteObjectProto;
 
-typedef RdmaIHT<int, int, 8, 128> IHT;
+typedef RdmaIHT<int, int, 8, 8> IHT;
 
 class Server {
 public:
