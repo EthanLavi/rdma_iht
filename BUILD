@@ -2,7 +2,7 @@
 cc_library(
     name = "iht_ds",
     srcs = ["iht_ds.cpp"],
-    hdrs = ["iht_ds.h", "role_server.h", "role_client.h"],
+    hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "operation.h"],
     copts = ["-std=c++2a"],
     deps = [
         "@rome//rome/rdma:rdma_memory",

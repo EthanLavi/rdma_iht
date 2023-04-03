@@ -10,6 +10,7 @@
 #include "rome/colosseum/workload_driver.h"
 #include "rome/util/clocks.h"
 #include "iht_ds.h"
+#include "operation.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;
@@ -27,7 +28,9 @@ void test_output(int actual, int expected, std::string message){
     }
 }
 
-class Client : public ClientAdaptor<rome::NoOp> {
+typedef IHT_Op<int, int> Operation;
+
+class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
   Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers) {
@@ -53,10 +56,13 @@ public:
           rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(-1);
 
     // auto *client_ptr = client.get();
+    std::vector<Operation> operations = std::vector<Operation>();
+    operations.push_back({0, 0, 0});
+    std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
 
     // Create and start the workload driver (also starts client).
-    auto driver = rome::WorkloadDriver<rome::NoOp>::Create(
-        std::move(client), std::make_unique<rome::NoOpStream>(),
+    auto driver = rome::WorkloadDriver<Operation>::Create(
+        std::move(client), std::move(workload_stream),
         qps_controller.get(),
         std::chrono::milliseconds(10));
     ROME_ASSERT_OK(driver->Start());
@@ -88,37 +94,23 @@ public:
 
   // Runs the next operation
   // TODO: Make this function do bulk operations.
-  absl::Status Apply(const rome::NoOp &op) override {
+  absl::Status Apply(const Operation &op) override {
     count++;
-    switch (count){
-      case 1:
-        test_output(iht_->contains(5), 0, "Contains 5");
+    switch (op.op_type){
+      case(CONTAINS):
+        iht_->contains(op.key);
         break;
-      case 2:
-        test_output(iht_->contains(4), 0, "Contains 4");
+      case(INSERT):
+        iht_->insert(op.key, op.value);
         break;
-      case 3:
-        test_output(iht_->insert(5, 10), 1, "Insert 5");
+      case(REMOVE):
+        iht_->remove(op.key);
         break;
-      case 4:
-        test_output(iht_->contains(5), 1, "Contains 5");
+      default:
+        ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
         break;
-      case 5:
-        test_output(iht_->contains(4), 0, "Contains 4");
-        break;
-      case 6:
-        test_output(iht_->remove(5), 1, "Remove 5");
-        break;
-      case 7:
-        test_output(iht_->contains(5), 0, "Contains 5");
-        break;
-      case 8:
-        test_output(iht_->contains(4), 0, "Contains 4");
-        break;
-      case 9:
-        ROME_INFO("All cases passed");
     }
-
+   
     return absl::OkStatus();
   }
 
