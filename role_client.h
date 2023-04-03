@@ -158,8 +158,7 @@ private:
   Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers)
       : self_(self), host_(host), 
         peers_(peers) {
-          struct config confs{8, 128};
-          iht_ = std::make_unique<IHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id), confs);
+          iht_ = std::make_unique<IHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id));
         }
 
   int count = 0;

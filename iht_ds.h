@@ -17,12 +17,6 @@ using ::rome::rdma::remote_nullptr;
 using ::rome::rdma::remote_ptr;
 using ::rome::rdma::RemoteObjectProto;
 
-// A structure to pass in the configuration for the IHT
-struct config {
-    size_t elist_size;
-    size_t plist_size;
-};
-
 // TODO: Make allocation of PList be dynamic and not static size
 
 template<class K, class V, int ELIST_SIZE, int PLIST_SIZE>
@@ -77,9 +71,13 @@ private:
     typedef remote_ptr<PList> remote_plist;    
     typedef remote_ptr<EList> remote_elist;
 
-    void InitPList(remote_plist p){
+    /// @brief Initialize the plist with values.
+    /// @param p the plist pointer to init
+    /// @param depth the depth of p, needed for PLIST_SIZE == base_size * (2 ** (depth - 1))
+    /// pow(2, depth - 1)
+    void InitPList(remote_plist p, int mult_modder){
         ROME_INFO("Start: Init plist");
-        for (size_t i = 0; i < PLIST_SIZE; i++){
+        for (size_t i = 0; i < PLIST_SIZE * mult_modder; i++){
             p->buckets[i].lock = pool_.Allocate<uint64_t>();
             *p->buckets[i].lock = E_UNLOCKED;
             remote_ptr<remote_baseptr> empty_base = pool_.Allocate<remote_baseptr>();
@@ -89,9 +87,6 @@ private:
         ROME_INFO("End: Init plist");
     }
 
-    // TODO: Transition to use these variables instead of DEFINE
-    const size_t elist_size; // Size of all elists
-    const size_t plist_size; // Size of all plists
     remote_ptr<PList> root;  // Start of plist
     std::hash<K> pre_hash; // Hash function from k -> size_t [this currently does nothing as the value of the int can just be returned :: though included for templating this class]
     
@@ -155,7 +150,7 @@ public:
 
     using conn_type = MemoryPool::conn_type;
 
-    RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm, struct config confs) : self_(self), elist_size(confs.elist_size), plist_size(confs.plist_size), pool_(self, std::move(cm)){};
+    RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm) : self_(self), pool_(self, std::move(cm)){};
 
     absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
         is_host_ = self_.id == host.id;
@@ -170,7 +165,7 @@ public:
             // Allocate data in pool
             RemoteObjectProto proto;
             remote_plist iht_root = pool_.Allocate<PList>();
-            InitPList(iht_root);    
+            InitPList(iht_root, 1);    
             this->root = iht_root;
             proto.set_raddr(iht_root.address());
 
@@ -213,7 +208,7 @@ public:
     bool contains(K key){
         // start at root
         remote_plist curr = pool_.Read<PList>(root);;
-        size_t depth = 1, count = plist_size;
+        size_t depth = 1, count = PLIST_SIZE;
         while (true) {
             uint64_t bucket = level_hash(key, depth) % count;
             remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
@@ -260,7 +255,7 @@ public:
     bool insert(K key, V value){
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
-        size_t depth = 1, count = plist_size;
+        size_t depth = 1, count = PLIST_SIZE;
         while (true){
             uint64_t bucket = level_hash(key, depth) % count;
             remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;
@@ -299,7 +294,7 @@ public:
             }
 
             // Check for enough insertion room
-            if (e->count < elist_size) {
+            if (e->count < ELIST_SIZE) {
                 // insert, unlock, return
                 e->elist_insert(key, value);
                 // If we are modifying the local copy, we need to write to the remote at the end...
@@ -322,7 +317,7 @@ public:
     bool remove(K key){
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
-        size_t depth = 1, count = plist_size;
+        size_t depth = 1, count = PLIST_SIZE;
         while (true) {
             uint64_t bucket = level_hash(key, depth) % count;
             remote_ptr<remote_baseptr> bucket_base = curr->buckets[bucket].base;

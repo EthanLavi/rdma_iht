@@ -35,8 +35,6 @@ int main(){
 
     bool am_host = false;
 
-    struct config confs{8, 128};
-
     if (hostname[4] != '0'){
         // we are not node0, we are a peer
         peers.push_back(host);
@@ -53,7 +51,7 @@ int main(){
         // we are node0, the host
         peers.push_back(receiver);
         am_host = true;
-        std::unique_ptr<Server> server = Server::Create(host, peers, confs);
+        std::unique_ptr<Server> server = Server::Create(host, peers);
         bool done = false;
         absl::Status status = server->Launch(&done, 0);
         ROME_DEBUG("Starting server is ok? {}", status.ok());
