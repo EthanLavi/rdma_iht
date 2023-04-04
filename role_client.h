@@ -17,7 +17,7 @@ using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::rdma::RemoteObjectProto;
 
-typedef RdmaIHT<int, int, 4, 4> IHT;
+typedef RdmaIHT<int, int, 8, 128> IHT;
 
 // Function to run a test case
 void test_output(int actual, int expected, std::string message){

@@ -95,26 +95,15 @@ private:
     
     bool acquire(remote_lock lock){
         // Spin while trying to acquire the lock
-        ROME_INFO("Entering lock");
         while (true){
             remote_lock local_lock = lock;
             if (lock.id() != self_.id) local_lock = pool_.Read<lock_type>(lock);
             auto v = local_lock->load();
 
-            ROME_INFO("Value of lock: {}", v);
-
-            // DEBUG helper
-            if (v != E_UNLOCKED && v != E_LOCKED && v != P_UNLOCKED){
-                ROME_INFO("Weird value of lock!! This is a bad error: {}", v);
-                exit(0);
-            }
-
             // Permanent unlock
             if (v == P_UNLOCKED){
                 return false;
             }
-
-            ROME_INFO("Remote? {}", lock.id() != self_.id);
 
             // If we can switch from unlock to lock status
             if (lock.id() != self_.id){
@@ -141,9 +130,10 @@ private:
     /// @param pdepth The depth of `parent`
     /// @param pidx   The index in `parent` of the bucket to rehash
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
-        ROME_INFO("Started rehash");
         // TODO: the plist size should double in size
-        int plist_size_factor = pow(2, pdepth); // how much bigger than original size we are 
+        pcount = pcount * 2;
+        int plist_size_factor = (pcount / ELIST_SIZE); // pow(2, pdepth); // how much bigger than original size we are 
+        
         // 2 ^ (depth) ==> in other words (depth:factor). 0:1, 1:2, 2:4, 3:8, 4:16, 5:32. 
         remote_plist new_p = pool_.Allocate<PList>(plist_size_factor);
         InitPList(new_p, plist_size_factor);
@@ -152,14 +142,12 @@ private:
         remote_baseptr parent_bucket = parent->buckets[pidx].base;
         remote_elist source = static_cast<remote_elist>(parent_bucket.id() == self_.id ? parent_bucket : pool_.Read<Base>(parent_bucket));
         for (size_t i = 0; i < source->count; i++){
-            uint64_t b = level_hash(source->pairs[i].key, pdepth + 1) % (pcount * plist_size_factor);
+            uint64_t b = level_hash(source->pairs[i].key, pdepth + 1) % pcount;
             if (new_p->buckets[b].base == remote_nullptr){
-                ROME_INFO("Created new elist"); // We found the issue, basically, we notice only one new elist creation... which is an issue because it causes an immediate rehash, which doesn't work?
                 remote_elist e = pool_.Allocate<EList>();
                 new_p->buckets[b].base = static_cast<remote_baseptr>(e);
             }
             remote_elist dest = static_cast<remote_elist>(new_p->buckets[b].base);
-            ROME_INFO("Values being reinserted {}:{} B4-Count:{} Pcount:{} Bucket:{}", source->pairs[i].key, source->pairs[i].val, dest->count, pcount * plist_size_factor, b);
             dest->elist_insert(source->pairs[i]);
         }
         pool_.Deallocate(parent_bucket);
@@ -175,7 +163,7 @@ public:
 
     absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
         is_host_ = self_.id == host.id;
-        uint32_t block_size = 1 << 20;
+        uint32_t block_size = 1 << 24;
 
         absl::Status status = pool_.Init(block_size, peers);
         ROME_CHECK_OK(ROME_RETURN(status), status);
@@ -235,7 +223,6 @@ public:
             remote_baseptr bucket_base = curr->buckets[bucket].base;
             remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_.Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
-                ROME_INFO("Error: Unexpected Control Flow");
                 // Can't lock then we are at a sub-plist
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
@@ -276,14 +263,12 @@ public:
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
         remote_plist before_localized_curr = root;
-        ROME_INFO("Read plist");
         size_t depth = 1, count = PLIST_SIZE;
         while (true){
             uint64_t bucket = level_hash(key, depth) % count;
             remote_baseptr bucket_base = curr->buckets[bucket].base;
             remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_.Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
-                ROME_INFO("Entering sub-plist");
                 // Can't lock then we are at a sub-plist
                 before_localized_curr = static_cast<remote_plist>(bucket_base);
                 curr = static_cast<remote_plist>(base_ptr);
@@ -294,7 +279,6 @@ public:
 
             // Past this point we have recursed to an elist
             if (base_ptr == remote_nullptr){
-                ROME_INFO("Empty elist");
                 // empty elist
                 remote_elist e = pool_.Allocate<EList>();
                 e->elist_insert(key, value);
@@ -308,7 +292,7 @@ public:
                 return true;
             }
 
-            ROME_INFO("We have recursed to an non-empty elist");
+            // We have recursed to an non-empty elist
             remote_elist e = static_cast<remote_elist>(base_ptr);
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
@@ -320,7 +304,6 @@ public:
                 }
             }
 
-            ROME_INFO("Found new value");
             // Check for enough insertion room
             if (e->count < ELIST_SIZE) {
                 // insert, unlock, return
@@ -330,9 +313,7 @@ public:
                 address_of_baseptr += sizeof(plist_pair_t) * bucket;
                 remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                 if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
-                ROME_INFO("Stuck somewhere here?");
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-                ROME_INFO("Should return now");
                 return true;
             }
 

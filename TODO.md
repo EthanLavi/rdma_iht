@@ -5,10 +5,7 @@ Goal: IHT Operations without rehashing
 
 Goal: IHT Operations with rehashing
 
-1. Finish rehash functionality
-2. Move away from static PLists
-3. Finish populate function
-4. Change typedef's back to int, int, 8, 128
+1. Finish populate function
 
 Things to look into:
 
