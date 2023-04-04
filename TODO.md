@@ -5,7 +5,16 @@ Goal: IHT Operations without rehashing
 
 Goal: IHT Operations with rehashing
 
-1. Finish populate function
+[x] done
+
+Goal: Refining my IHT repo
+
+1. Populate function
+2. Kill running servers with a script
+3. Fix OOM Error (i.e. answer my 5th question)
+4. Concise functions
+5. Integrate experiment.proto
+6. Look into using docker as a build environment
 
 Things to look into:
 
@@ -13,3 +22,4 @@ Things to look into:
 * Can I setup a MemoryPool with self as a peer
 * Read makes a copy? Can I do pointer arithmetic?
 * How does compare & swap work?
+* Why am I getting an error when trying to allocate memory after ~1000ish operations

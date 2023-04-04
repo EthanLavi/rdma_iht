@@ -119,6 +119,14 @@ private:
         else *lock = unlock_status;
     }
 
+    inline void change_bucket_pointer(remote_plist before_localized_curr, uint64_t bucket, remote_baseptr baseptr){
+        uint64_t address_of_baseptr = before_localized_curr.address();
+        address_of_baseptr += sizeof(plist_pair_t) * bucket;
+        remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
+        if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, baseptr);
+        else *magic_baseptr = baseptr;
+    }
+
     // Hashing function to decide bucket size
     uint64_t level_hash(const K &key, size_t level){
         return level ^ pre_hash(key);
@@ -163,7 +171,7 @@ public:
 
     absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
         is_host_ = self_.id == host.id;
-        uint32_t block_size = 1 << 24;
+        uint32_t block_size = 1 << 22;
 
         absl::Status status = pool_.Init(block_size, peers);
         ROME_CHECK_OK(ROME_RETURN(status), status);
@@ -283,10 +291,8 @@ public:
                 remote_elist e = pool_.Allocate<EList>();
                 e->elist_insert(key, value);
                 remote_baseptr e_base = static_cast<remote_baseptr>(e);
-                uint64_t address_of_baseptr = before_localized_curr.address();
-                address_of_baseptr += sizeof(plist_pair_t) * bucket;
-                remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
-                if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e_base));
+                // modify the bucket's pointer
+                change_bucket_pointer(before_localized_curr, bucket, e_base);
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 // successful insert
                 return true;
@@ -308,11 +314,9 @@ public:
             if (e->count < ELIST_SIZE) {
                 // insert, unlock, return
                 e->elist_insert(key, value);
-                // If we are modifying the local copy, we need to write to the remote at the end... !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                uint64_t address_of_baseptr = before_localized_curr.address();
-                address_of_baseptr += sizeof(plist_pair_t) * bucket;
-                remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
-                if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
+                // If we are modifying the local copy, we need to write to the remote at the end
+                change_bucket_pointer(before_localized_curr, bucket, static_cast<remote_baseptr>(e));
+                // unlock and return true
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 return true;
             }
@@ -320,14 +324,11 @@ public:
             // Ignore this branch for now since we haven't implemented rehash
             // Need more room so rehash into plist and perma-unlock
             remote_plist p = rehash(curr, count, depth, bucket);
-            uint64_t address_of_baseptr = before_localized_curr.address();
-            address_of_baseptr += sizeof(plist_pair_t) * bucket;
-            remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
-            if (magic_baseptr.id() != self_.id){
-                pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(p));
-            }
-            // keep curr updated with remote curr
+            // modify the bucket's pointer
+            change_bucket_pointer(before_localized_curr, bucket, static_cast<remote_baseptr>(p));
+            // keep local curr updated with remote curr
             curr->buckets[bucket].base = static_cast<remote_baseptr>(p);
+            // unlock bucket
             unlock(curr->buckets[bucket].lock, P_UNLOCKED);
         }
     }
@@ -374,10 +375,8 @@ public:
                     }
                     e->count -= 1;
                     // If we are modifying the local copy, we need to write to the remote at the end...
-                    uint64_t address_of_baseptr = before_localized_curr.address();
-                    address_of_baseptr += sizeof(plist_pair_t) * bucket;
-                    remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
-                    if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
+                    change_bucket_pointer(before_localized_curr, bucket, static_cast<remote_baseptr>(e));
+                    // Unlock and return
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     return true;
                 }

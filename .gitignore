@@ -36,3 +36,6 @@ results/
 
 # Mac DS store
 .DS_Store
+
+# Temporarirly silence my experiment.proto file
+experiment.proto
