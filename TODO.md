@@ -7,10 +7,8 @@ Goal: IHT Operations with rehashing
 
 1. Finish rehash functionality
 2. Move away from static PLists
-3. Improve workload driver
-4. Get rid of indirection
-5. Finish populate function
-6. Change typedef's back to int, int, 8, 128
+3. Finish populate function
+4. Change typedef's back to int, int, 8, 128
 
 Things to look into:
 

@@ -50,7 +50,7 @@ int main(int argc, char** argv){
         std::unique_ptr<Client> client = Client::Create(receiver, host, peers);
         if (bulk_operations){
             bool done = false;
-            absl::Status run_status = client->Run(std::move(client), &done);
+            absl::Status run_status = Client::Run(std::move(client), &done);
             ROME_DEBUG("Running the IHT works? {}", run_status.ok());
         } else if (test_operations) {
             absl::Status init_status = client->Start();

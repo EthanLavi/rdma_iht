@@ -17,7 +17,7 @@ using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::rdma::RemoteObjectProto;
 
-typedef RdmaIHT<int, int, 8, 8> IHT;
+typedef RdmaIHT<int, int, 4, 4> IHT;
 
 // Function to run a test case
 void test_output(int actual, int expected, std::string message){
@@ -99,22 +99,25 @@ public:
   // TODO: Make this function do bulk operations.
   absl::Status Apply(const Operation &op) override {
     count++;
-    if (count % 100 == 0) ROME_INFO("Apply called for {}th time", count);
+    // if (count % 100 == 0) ROME_INFO("Apply called for {}th time", count);
+    
     switch (op.op_type){
       case(CONTAINS):
+        ROME_INFO("Running Operation: contains({})", op.key);
         iht_->contains(op.key);
         break;
       case(INSERT):
+        ROME_INFO("Running Operation: insert({}, {})", op.key, op.value);
         iht_->insert(op.key, op.value);
         break;
       case(REMOVE):
+        ROME_INFO("Running Operation: remove({})", op.key);
         iht_->remove(op.key);
         break;
       default:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
         break;
     }
-   
     return absl::OkStatus();
   }
 
