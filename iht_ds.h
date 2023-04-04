@@ -93,6 +93,7 @@ private:
     remote_ptr<PList> root;  // Start of plist
     std::hash<K> pre_hash; // Hash function from k -> size_t [this currently does nothing as the value of the int can just be returned :: though included for templating this class]
     
+    /// Acquire a lock on the bucket. Will prevent others from modifying it
     bool acquire(remote_lock lock){
         // Spin while trying to acquire the lock
         while (true){
@@ -114,11 +115,18 @@ private:
         }
     }
 
+    /// @brief Unlock a lock. ==> the reverse of acquire
+    /// @param lock the lock to unlock
+    /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
         if (lock.id() != self_.id) pool_.AtomicSwap(lock, unlock_status);
         else *lock = unlock_status;
     }
 
+    /// @brief Change the baseptr from a given bucket (could be remote as well) 
+    /// @param before_localized_curr the start of the bucket list (plist)
+    /// @param bucket the bucket to write to
+    /// @param baseptr the new pointer that bucket should point to
     inline void change_bucket_pointer(remote_plist before_localized_curr, uint64_t bucket, remote_baseptr baseptr){
         uint64_t address_of_baseptr = before_localized_curr.address();
         address_of_baseptr += sizeof(plist_pair_t) * bucket;
