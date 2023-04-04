@@ -48,13 +48,13 @@ private:
         pair_t pairs[ELIST_SIZE]; // A list of pairs to store (stored as remote pointer to start of the contigous memory block)
         
         // Insert into elist a deconstructed pair
-        void elist_insert(const K &key, const V &val){
+        void elist_insert(const K key, const V val){
             pairs[count] = {key, val};
             count++;
         }
 
         // Insert into elist a pair
-        void elist_insert(const pair_t& pair){
+        void elist_insert(const pair_t pair){
             pairs[count] = pair;
             count++;
         }
@@ -82,13 +82,11 @@ private:
     /// @param depth the depth of p, needed for PLIST_SIZE == base_size * (2 ** (depth - 1))
     /// pow(2, depth - 1)
     void InitPList(remote_plist p, int mult_modder){
-        ROME_INFO("Start: Init plist");
         for (size_t i = 0; i < PLIST_SIZE * mult_modder; i++){
             p->buckets[i].lock = pool_.Allocate<lock_type>();
             *p->buckets[i].lock = E_UNLOCKED;
             p->buckets[i].base = remote_nullptr;
         }
-        ROME_INFO("End: Init plist");
     }
 
     remote_ptr<PList> root;  // Start of plist
@@ -135,6 +133,7 @@ private:
     /// @param pdepth The depth of `parent`
     /// @param pidx   The index in `parent` of the bucket to rehash
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
+        ROME_INFO("Started rehash");
         // TODO: the plist size should double in size
         // int plist_size_factor = pow(2, pdepth-1); // how much bigger than original size we are 
         // 2 ^ (depth - 1) ==> in other words (depth:factor). 1:1, 2:2, 3:4, 4:8, 5:16. 
@@ -147,14 +146,14 @@ private:
         for (size_t i = 0; i < source->count; i++){
             uint64_t b = level_hash(source->pairs[i].key, pdepth + 1) % pcount;
             if (new_p->buckets[b].base == remote_nullptr){
+                ROME_INFO("Created new elist"); // We found the issue, basically, we notice only one new elist creation... which is an issue because it causes an immediate rehash, which doesn't work?
                 remote_elist e = pool_.Allocate<EList>();
                 new_p->buckets[b].base = static_cast<remote_baseptr>(e);
             }
             remote_elist dest = static_cast<remote_elist>(new_p->buckets[b].base);
             dest->elist_insert(source->pairs[i]);
         }
-        pool_.Deallocate(source);
-        ROME_INFO("Finish rehash");
+        pool_.Deallocate(parent_bucket);
         return new_p;
     }
 public:
@@ -221,10 +220,6 @@ public:
         ROME_INFO("Starting contains...");
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
-        ROME_INFO("Value 1: {}   Value 2: {}   Value 3: {}", curr.address(), reinterpret_cast<unsigned long>(&(curr->buckets[1].base)), reinterpret_cast<unsigned long>(&(curr->buckets)));
-        unsigned long val = reinterpret_cast<unsigned long>(&(curr->buckets[1].base) - curr.address());
-        ROME_INFO("Just curious what these values are {} {}", sizeof(plist_pair_t), val);
-
         size_t depth = 1, count = PLIST_SIZE;
         while (true) {
             uint64_t bucket = level_hash(key, depth) % count;
@@ -297,7 +292,6 @@ public:
                 e->elist_insert(key, value);
                 remote_baseptr e_base = static_cast<remote_baseptr>(e);
                 uint64_t address_of_baseptr = before_localized_curr.address();
-                ROME_INFO("Increase in pointer magic {} by bucket {}", sizeof(plist_pair_t) * bucket, bucket);
                 address_of_baseptr += sizeof(plist_pair_t) * bucket;
                 remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                 if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e_base));
@@ -324,7 +318,6 @@ public:
                 e->elist_insert(key, value);
                 // If we are modifying the local copy, we need to write to the remote at the end... !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 uint64_t address_of_baseptr = before_localized_curr.address();
-                ROME_INFO("Increase in pointer magic {} by bucket {}", sizeof(plist_pair_t) * bucket, bucket);
                 address_of_baseptr += sizeof(plist_pair_t) * bucket;
                 remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                 if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
@@ -335,11 +328,15 @@ public:
             // Ignore this branch for now since we haven't implemented rehash
             // Need more room so rehash into plist and perma-unlock
             remote_plist p = rehash(curr, count, depth, bucket);
-            ROME_INFO("Writing back");
-            pool_.Write<Base>(curr->buckets[bucket].base, static_cast<Base>(*p));
-            ROME_INFO("Wrote back");
+            uint64_t address_of_baseptr = before_localized_curr.address();
+            address_of_baseptr += sizeof(plist_pair_t) * bucket;
+            remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
+            if (magic_baseptr.id() != self_.id){
+                pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(p));
+            }
+            // keep curr updated with remote curr
+            curr->buckets[bucket].base = static_cast<remote_baseptr>(p);
             pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, P_UNLOCKED);
-            ROME_INFO("After atomic swap");
         }
     }
     
@@ -386,7 +383,6 @@ public:
                     e->count -= 1;
                     // If we are modifying the local copy, we need to write to the remote at the end...
                     uint64_t address_of_baseptr = before_localized_curr.address();
-                    ROME_INFO("Increase in pointer magic {} by bucket {}", sizeof(plist_pair_t) * bucket, bucket);
                     address_of_baseptr += sizeof(plist_pair_t) * bucket;
                     remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                     if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
