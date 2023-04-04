@@ -69,6 +69,7 @@ private:
         remote_baseptr base; // Pointer to base, the super class of Elist or Plist
         remote_lock lock; // A lock to represent if the base is open or not
     };
+
     // PointerList stores EList pointers and assorted locks
     struct PList : Base {
         plist_pair_t buckets[PLIST_SIZE]; // Pointer lock pairs
@@ -80,7 +81,7 @@ private:
     /// @brief Initialize the plist with values.
     /// @param p the plist pointer to init
     /// @param depth the depth of p, needed for PLIST_SIZE == base_size * (2 ** (depth - 1))
-    /// pow(2, depth - 1)
+    /// pow(2, depth)
     void InitPList(remote_plist p, int mult_modder){
         for (size_t i = 0; i < PLIST_SIZE * mult_modder; i++){
             p->buckets[i].lock = pool_.Allocate<lock_type>();
@@ -100,6 +101,8 @@ private:
             if (lock.id() != self_.id) local_lock = pool_.Read<lock_type>(lock);
             auto v = local_lock->load();
 
+            ROME_INFO("Value of lock: {}", v);
+
             // DEBUG helper
             if (v != E_UNLOCKED && v != E_LOCKED && v != P_UNLOCKED){
                 ROME_INFO("Weird value of lock!! This is a bad error: {}", v);
@@ -111,15 +114,20 @@ private:
                 return false;
             }
 
+            ROME_INFO("Remote? {}", lock.id() != self_.id);
+
             // If we can switch from unlock to lock status
             if (lock.id() != self_.id){
                 if (pool_.CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED) == E_UNLOCKED) return true;
             } else if (v == E_UNLOCKED){
                 if (lock->compare_exchange_weak(v, E_LOCKED)) return true;
             }
-            
         }
-        ROME_INFO("End lock");
+    }
+
+    inline void unlock(remote_lock lock, uint64_t unlock_status){
+        if (lock.id() != self_.id) pool_.AtomicSwap(lock, unlock_status);
+        else *lock = unlock_status;
     }
 
     // Hashing function to decide bucket size
@@ -135,22 +143,23 @@ private:
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
         ROME_INFO("Started rehash");
         // TODO: the plist size should double in size
-        // int plist_size_factor = pow(2, pdepth-1); // how much bigger than original size we are 
-        // 2 ^ (depth - 1) ==> in other words (depth:factor). 1:1, 2:2, 3:4, 4:8, 5:16. 
-        remote_plist new_p = pool_.Allocate<PList>(1); // for now, lets keep at 1... until we finish rehash
-        InitPList(new_p, 1);
+        int plist_size_factor = pow(2, pdepth); // how much bigger than original size we are 
+        // 2 ^ (depth) ==> in other words (depth:factor). 0:1, 1:2, 2:4, 3:8, 4:16, 5:32. 
+        remote_plist new_p = pool_.Allocate<PList>(plist_size_factor);
+        InitPList(new_p, plist_size_factor);
 
         // hash everything from the full elist into it
         remote_baseptr parent_bucket = parent->buckets[pidx].base;
         remote_elist source = static_cast<remote_elist>(parent_bucket.id() == self_.id ? parent_bucket : pool_.Read<Base>(parent_bucket));
         for (size_t i = 0; i < source->count; i++){
-            uint64_t b = level_hash(source->pairs[i].key, pdepth + 1) % pcount;
+            uint64_t b = level_hash(source->pairs[i].key, pdepth + 1) % (pcount * plist_size_factor);
             if (new_p->buckets[b].base == remote_nullptr){
                 ROME_INFO("Created new elist"); // We found the issue, basically, we notice only one new elist creation... which is an issue because it causes an immediate rehash, which doesn't work?
                 remote_elist e = pool_.Allocate<EList>();
                 new_p->buckets[b].base = static_cast<remote_baseptr>(e);
             }
             remote_elist dest = static_cast<remote_elist>(new_p->buckets[b].base);
+            ROME_INFO("Values being reinserted {}:{} B4-Count:{} Pcount:{} Bucket:{}", source->pairs[i].key, source->pairs[i].val, dest->count, pcount * plist_size_factor, b);
             dest->elist_insert(source->pairs[i]);
         }
         pool_.Deallocate(parent_bucket);
@@ -228,17 +237,16 @@ public:
             if (!acquire(curr->buckets[bucket].lock)){
                 ROME_INFO("Error: Unexpected Control Flow");
                 // Can't lock then we are at a sub-plist
-                // Might have to do another read here. For now its fine because we aren't rehashing
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
-                count *= 1; // TODO: Change back to 2 when we expand PList size
+                count *= 2; // TODO: Change back to 2 when we expand PList size
                 continue;
             }
 
             // Past this point we have recursed to an elist
             if (base_ptr == remote_nullptr){
                 // empty elist
-                pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 return false;
             }
 
@@ -248,14 +256,14 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
-                    pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+                    unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     result = e->pairs[i].val;
                     return true;
                 }
             }
 
             // Can't find, unlock and return fasle
-            pool_.AtomicSwap(curr->buckets[bucket].lock, E_UNLOCKED);
+            unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             return false;
         }
     }
@@ -280,7 +288,7 @@ public:
                 before_localized_curr = static_cast<remote_plist>(bucket_base);
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
-                count *= 1; // TODO: Change back to 2 when we expand PList size
+                count *= 2; // TODO: Change back to 2 when we expand PList size
                 continue;
             }
 
@@ -295,23 +303,24 @@ public:
                 address_of_baseptr += sizeof(plist_pair_t) * bucket;
                 remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                 if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e_base));
-                pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, E_UNLOCKED);
+                unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 // successful insert
                 return true;
             }
 
-            // Need to do a conditional read here because base_ptr might be ours. Basically we read the EList locally
+            ROME_INFO("We have recursed to an non-empty elist");
             remote_elist e = static_cast<remote_elist>(base_ptr);
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
                     result = e->pairs[i].val;
                     // Contains the key => unlock and return false
-                    pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, E_UNLOCKED);
+                    unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     return false;
                 }
             }
 
+            ROME_INFO("Found new value");
             // Check for enough insertion room
             if (e->count < ELIST_SIZE) {
                 // insert, unlock, return
@@ -321,7 +330,9 @@ public:
                 address_of_baseptr += sizeof(plist_pair_t) * bucket;
                 remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                 if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
-                pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, E_UNLOCKED);
+                ROME_INFO("Stuck somewhere here?");
+                unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+                ROME_INFO("Should return now");
                 return true;
             }
 
@@ -336,7 +347,7 @@ public:
             }
             // keep curr updated with remote curr
             curr->buckets[bucket].base = static_cast<remote_baseptr>(p);
-            pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, P_UNLOCKED);
+            unlock(curr->buckets[bucket].lock, P_UNLOCKED);
         }
     }
     
@@ -358,14 +369,14 @@ public:
                 before_localized_curr = static_cast<remote_plist>(bucket_base);
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
-                count *= 1; // TODO: Change back to 2 when we expand PList size
+                count *= 2; // TODO: Change back to 2 when we expand PList size
                 continue;
             }
 
             // Past this point we have recursed to an elist
             if (base_ptr == remote_nullptr){
                 // empty elist, can just unlock and return false
-                pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, E_UNLOCKED);
+                unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 return false;
             }
 
@@ -386,13 +397,13 @@ public:
                     address_of_baseptr += sizeof(plist_pair_t) * bucket;
                     remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
                     if (magic_baseptr.id() != self_.id) pool_.Write<remote_baseptr>(magic_baseptr, static_cast<remote_baseptr>(e));
-                    pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, E_UNLOCKED);
+                    unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     return true;
                 }
             }
 
             // Can't find, unlock and return false
-            pool_.AtomicSwap<lock_type>(curr->buckets[bucket].lock, E_UNLOCKED);
+            unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             return false;
         }
     }
