@@ -38,7 +38,7 @@ private:
 
     // ElementList stores a bunch of K/V pairs. IHT employs a "seperate chaining"-like approach.
     // Rather than storing via a linked list (with easy append), it uses a fixed size array
-    struct EList : Base {
+    struct alignas(64) EList : Base {
         struct pair_t {
             K key;
             V val;
@@ -72,7 +72,7 @@ private:
     };
 
     // PointerList stores EList pointers and assorted locks
-    struct PList : Base {
+    struct alignas(64) PList : Base {
         plist_pair_t buckets[PLIST_SIZE]; // Pointer lock pairs
     };
 
@@ -184,7 +184,7 @@ public:
 
     absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
         is_host_ = self_.id == host.id;
-        uint32_t block_size = 1 << 16;
+        uint32_t block_size = 1 << 22;
 
         absl::Status status = pool_.Init(block_size, peers);
         ROME_CHECK_OK(ROME_RETURN(status), status);
@@ -294,12 +294,15 @@ public:
         remote_plist curr = pool_.Read<PList>(root);
         remote_plist before_localized_curr = root;
         size_t depth = 1, count = PLIST_SIZE;
+        bool oldBucketBase = root.id() != self_.id;
         while (true){
             uint64_t bucket = level_hash(key, depth) % count;
             remote_baseptr bucket_base = curr->buckets[bucket].base;
             remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_.Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
                 // Can't lock then we are at a sub-plist
+                if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
+                oldBucketBase = bucket_base.id() != self_.id; // setting the old bucket base
                 before_localized_curr = static_cast<remote_plist>(bucket_base);
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
@@ -316,6 +319,7 @@ public:
                 // modify the bucket's pointer
                 change_bucket_pointer(before_localized_curr, bucket, e_base);
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+                if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
                 // successful insert
                 return true;
             }
@@ -328,6 +332,8 @@ public:
                     result = e->pairs[i].val;
                     // Contains the key => unlock and return false
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+                    if (bucket_base.id() != self_.id) pool_.Deallocate<EList>(e);
+                    if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
                     return false;
                 }
             }
@@ -340,6 +346,8 @@ public:
                 change_bucket_pointer(before_localized_curr, bucket, static_cast<remote_baseptr>(e));
                 // unlock and return true
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+                if (bucket_base.id() != self_.id) pool_.Deallocate<EList>(e);
+                if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
                 return true;
             }
 
@@ -352,6 +360,19 @@ public:
             curr->buckets[bucket].base = static_cast<remote_baseptr>(p);
             // unlock bucket
             unlock(curr->buckets[bucket].lock, P_UNLOCKED);
+            ROME_INFO("LOOK I MADE IT PAST THE REHASH");
+            if (bucket_base.id() != self_.id) pool_.Deallocate<EList>(e);
+
+            // repeat from top in a way to progress past the plist we just inserted
+            bucket = level_hash(key, depth) % count;
+            bucket_base = curr->buckets[bucket].base;
+            base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_.Read<Base>(bucket_base);
+            if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
+            oldBucketBase = bucket_base.id() != self_.id; // setting the old bucket base
+            before_localized_curr = static_cast<remote_plist>(bucket_base);
+            curr = static_cast<remote_plist>(base_ptr);
+            depth++;
+            count *= 2;
         }
     }
     

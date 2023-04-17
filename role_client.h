@@ -58,14 +58,15 @@ public:
     // auto *client_ptr = client.get();
     std::vector<Operation> operations = std::vector<Operation>();
     
+    // Populate
     for (int j = 0; j < 25; j++){
       operations.push_back({INSERT, j, j});
     }
 
+    // Deliver a workload
     int WORKLOAD_AMOUNT = 10000;
     for(int i = 0; i < WORKLOAD_AMOUNT; i++){
-      // operations.push_back({INSERT, i, i});
-      operations.push_back({REMOVE, 1, 0});
+      operations.push_back({INSERT, i, i});
     }
     
     std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
