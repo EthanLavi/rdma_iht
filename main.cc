@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include <ostream>
+#include <thread>         
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -35,14 +36,42 @@ int main(int argc, char** argv){
     bool test_operations = absl::GetFlag(FLAGS_send_test);
 
     MemoryPool::Peer host{0, std::string(iphost), portNum};
+    // MemoryPool::Peer rec{0, std::string(iphost), portNum+1};
     MemoryPool::Peer receiver{1, std::string(ippeer), portNum + 1};
     std::vector<MemoryPool::Peer> peers;
 
     char hostname[4096];
     gethostname(hostname, 4096);
-
     bool am_host = false;
 
+    /*
+    if (hostname[4] != '0'){
+        ROME_DEBUG("Not in this experiment shutting down");
+        return 0;
+    }
+
+    std::thread t1([&](){
+        ROME_DEBUG("Entered the server area");
+        // we are the server
+        peers.push_back(rec);
+        std::unique_ptr<Server> server = Server::Create(host, peers);
+        bool done = false;
+        absl::Status run_status = server->Launch(&done, 0);            
+        ROME_DEBUG("Running the server works? {}", run_status.ok());
+    });
+    std::thread t2([&](){
+        ROME_DEBUG("Entered the client area");
+        // we are the client
+        peers.push_back(host);
+        std::unique_ptr<Client> client = Client::Create(rec, host, peers);
+        absl::Status run_status = client->Operations();
+        ROME_DEBUG("Running client works? {}", run_status.ok());
+    });
+    
+    t1.join();
+    t2.join();
+    */
+    
     if (hostname[4] != '0'){
         // we are not node0, we are a peer
         peers.push_back(host);

@@ -53,14 +53,19 @@ public:
     // Setup qps_controller.
     std::unique_ptr<rome::LeakyTokenBucketQpsController<util::SystemClock>>
         qps_controller =
-          rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(-1);
+          rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(-1); // what is the value here
 
     // auto *client_ptr = client.get();
     std::vector<Operation> operations = std::vector<Operation>();
     
+    for (int j = 0; j < 25; j++){
+      operations.push_back({INSERT, j, j});
+    }
+
     int WORKLOAD_AMOUNT = 10000;
     for(int i = 0; i < WORKLOAD_AMOUNT; i++){
-      operations.push_back({INSERT, i, 0});
+      // operations.push_back({INSERT, i, i});
+      operations.push_back({CONTAINS, 1, 0});
     }
     
     std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
@@ -69,7 +74,9 @@ public:
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
-        std::chrono::milliseconds(10));
+        std::chrono::milliseconds(10)); // TODO: change sampling rate. Does it fix the issue?
+        // Theory #1: The high amount of operations causes an issue because it is forced to allocate a lot of memory.
+        // Fixes: Decrease # of inserts, change QPS
     ROME_ASSERT_OK(driver->Start());
 
     // Output results.
@@ -99,7 +106,6 @@ public:
   // TODO: Make this function do bulk operations.
   absl::Status Apply(const Operation &op) override {
     count++;
-    // if (count % 100 == 0) ROME_INFO("Apply called for {}th time", count);
     
     switch (op.op_type){
       case(CONTAINS):

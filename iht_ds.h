@@ -68,6 +68,7 @@ private:
     struct plist_pair_t {
         remote_baseptr base; // Pointer to base, the super class of Elist or Plist
         remote_lock lock; // A lock to represent if the base is open or not
+        // TODO: Maybe I can manipulate the lock without needing a pointer?
     };
 
     // PointerList stores EList pointers and assorted locks
@@ -100,6 +101,7 @@ private:
             remote_lock local_lock = lock;
             if (lock.id() != self_.id) local_lock = pool_.Read<lock_type>(lock);
             auto v = local_lock->load();
+            if (lock.id() != self_.id) pool_.Deallocate<lock_type>(local_lock, 8); // free the local copy (have to delete "8" because we need to take into account alignment!)
 
             // Permanent unlock
             if (v == P_UNLOCKED){
@@ -128,6 +130,7 @@ private:
     /// @param bucket the bucket to write to
     /// @param baseptr the new pointer that bucket should point to
     inline void change_bucket_pointer(remote_plist before_localized_curr, uint64_t bucket, remote_baseptr baseptr){
+        ROME_INFO("Change bucket ptr");
         uint64_t address_of_baseptr = before_localized_curr.address();
         address_of_baseptr += sizeof(plist_pair_t) * bucket;
         remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
@@ -146,6 +149,7 @@ private:
     /// @param pdepth The depth of `parent`
     /// @param pidx   The index in `parent` of the bucket to rehash
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
+        ROME_INFO("Depth of the data structure:: {}", pdepth);
         // TODO: the plist size should double in size
         pcount = pcount * 2;
         int plist_size_factor = (pcount / ELIST_SIZE); // pow(2, pdepth); // how much bigger than original size we are 
@@ -166,6 +170,7 @@ private:
             remote_elist dest = static_cast<remote_elist>(new_p->buckets[b].base);
             dest->elist_insert(source->pairs[i]);
         }
+        // Deallocate the old elist
         pool_.Deallocate(parent_bucket);
         return new_p;
     }
@@ -179,7 +184,7 @@ public:
 
     absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
         is_host_ = self_.id == host.id;
-        uint32_t block_size = 1 << 22;
+        uint32_t block_size = 1 << 16;
 
         absl::Status status = pool_.Init(block_size, peers);
         ROME_CHECK_OK(ROME_RETURN(status), status);
@@ -234,12 +239,16 @@ public:
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
         size_t depth = 1, count = PLIST_SIZE;
+        bool oldBucketBase = root.id() != self_.id;
         while (true) {
             uint64_t bucket = level_hash(key, depth) % count;
             remote_baseptr bucket_base = curr->buckets[bucket].base;
             remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_.Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
+                ROME_INFO("Inside lock unexpectedly");
                 // Can't lock then we are at a sub-plist
+                if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
+                oldBucketBase = bucket_base.id() != self_.id; // setting the old bucket base
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
                 count *= 2; // TODO: Change back to 2 when we expand PList size
@@ -250,6 +259,7 @@ public:
             if (base_ptr == remote_nullptr){
                 // empty elist
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+                if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
                 return false;
             }
 
@@ -261,12 +271,16 @@ public:
                 if (e->pairs[i].key == key){
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     result = e->pairs[i].val;
+                    if (bucket_base.id() != self_.id) pool_.Deallocate<EList>(e);
+                    if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
                     return true;
                 }
             }
 
             // Can't find, unlock and return fasle
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+            if (bucket_base.id() != self_.id) pool_.Deallocate<EList>(e);
+            if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
             return false;
         }
     }
@@ -396,6 +410,10 @@ public:
         }
     }
 
+    /// @brief Populate the data structure with values within the key range
+    /// @param n the number of values to populate with
+    /// @param keys the key range?
+    /// @param values 
     void populate(int n, K* keys, V* values){
         for (int i = 0; i < n; i++)
             this->insert(keys[i], values[i]);

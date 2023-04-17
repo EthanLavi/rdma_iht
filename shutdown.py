@@ -42,7 +42,7 @@ def execute(commands):
     processes: List[Process] = []
     for cmd, file in commands:
         # Start a thread
-        processes.append(Process(target=__run__, args=(cmd)))
+        processes.append(Process(target=__run__, args=(cmd,)))
         processes[-1].start()
 
     # Wait for all threads to finish
@@ -58,12 +58,13 @@ def main(args):
             nodename, nodealias, nodetype = node
             # Construct ssh command and payload
             ssh_login = f"ssh -i {FLAGS.ssh_keyfile} {FLAGS.ssh_user}@{nodealias}.{domain_name(nodetype)}"
-            payload = "ps -ef | grep \"run main\" | grep -v grep | awk '{print $2}' | xargs kill" # maybe switch out for pkill command instead
+            # !!! The purpose here is to shutdown running instances of the program if its gets stuck somewhere !!!
+            payload = f"/usr/bin/pkill -15 bazelisk"
             # Tuple: (Creating Command | Output File Name)
             commands.append((' '.join([ssh_login, quote(payload)]), nodename))
     # Execute the commands and let us know we've finished
     execute(commands)
-    print("Finished Experiment")
+    print("Completed Task")
 
 
 if __name__ == "__main__":
