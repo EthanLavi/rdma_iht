@@ -5,11 +5,12 @@
 #include "absl/status/statusor.h"
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/rdma/memory_pool/memory_pool.h"
+#include "config.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::rdma::RemoteObjectProto;
 
-typedef RdmaIHT<int, int, 8, 128> IHT;
+typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 
 class Server {
 public:

@@ -18,6 +18,7 @@ Goal: Refining my IHT repo
 
 Things to look into:
 
+* Rehashing the same key leads to a similar value. As a result, we are "stuck" using certain paths, causing much more collisions. Fixed by hashing by count-1. Avoid "Given mod A, find mod 2A issue"
 * How does Allocate work? Can I provide parameters in it.
 * Can I setup a MemoryPool with self as a peer
 * How does compare & swap work?
@@ -25,3 +26,7 @@ Things to look into:
 
 Q1: OOM
 Q2: Memory Pool with self as a Peer
+
+Issues:
+
+How do I deallocate the EList (upon rehashing) if the owner is not me? Maybe I need to implement a lazy solution?

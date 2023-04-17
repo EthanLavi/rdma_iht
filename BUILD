@@ -2,7 +2,7 @@
 cc_library(
     name = "iht_ds",
     srcs = ["iht_ds.cpp"],
-    hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "operation.h"],
+    hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "operation.h", "config.h"],
     copts = ["-std=c++2a"],
     deps = [
         "@absl//absl/flags:flag",

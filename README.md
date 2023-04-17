@@ -60,10 +60,18 @@ By changing tool_path for gcc on line 74 from /usr/bin/clang to /usr/bin/clang-1
 
 ### Other issues
 
+Implementation Issue:
 ```
 libc++abi: terminating with uncaught exception of type std::out_of_range: unordered_map::at: key not found
 ```
 This happens when we try to use the RDMA API to deal with remote pointers 'pointing' to ourselves...
+<br><br>
+
+Implementation Issue:
+```
+OOM!
+```
+This happens when we leak memory. For example with in-correct alignment [64] or if we don't free the space we allocate from reading data.
 <br><br>
 
 

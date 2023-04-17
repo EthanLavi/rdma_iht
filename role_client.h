@@ -11,13 +11,14 @@
 #include "rome/util/clocks.h"
 #include "iht_ds.h"
 #include "operation.h"
+#include "config.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::rdma::RemoteObjectProto;
 
-typedef RdmaIHT<int, int, 8, 128> IHT;
+typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 
 // Function to run a test case
 void test_output(int actual, int expected, std::string message){
@@ -59,14 +60,16 @@ public:
     std::vector<Operation> operations = std::vector<Operation>();
     
     // Populate
-    for (int j = 0; j < 25; j++){
-      operations.push_back({INSERT, j, j});
+    int i;
+    for (i = 0; i < 100; i++){
+      operations.push_back({INSERT, i, i});
     }
 
     // Deliver a workload
     int WORKLOAD_AMOUNT = 10000;
-    for(int i = 0; i < WORKLOAD_AMOUNT; i++){
+    for(; i < WORKLOAD_AMOUNT; i++){
       operations.push_back({INSERT, i, i});
+      // operations.push_back({REMOVE, i, i});
     }
     
     std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
@@ -76,9 +79,9 @@ public:
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
         std::chrono::milliseconds(10)); // TODO: change sampling rate. Does it fix the issue?
-        // Theory #1: The high amount of operations causes an issue because it is forced to allocate a lot of memory.
-        // Fixes: Decrease # of inserts, change QPS
     ROME_ASSERT_OK(driver->Start());
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    ROME_ASSERT_OK(driver->Stop());
 
     // Output results.
     // ResultProto result;
