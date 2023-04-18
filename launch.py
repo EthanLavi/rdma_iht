@@ -90,7 +90,8 @@ def process_exp_flags():
     if FLAGS.from_param_config is not None:
         with open(FLAGS.from_param_config, "r") as f:
             # Load the json into the proto
-            mapper = json.load(f.read())
+            json_data = f.read()
+            mapper = json.loads(json_data)
             one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "contains", "insert", "remove", "key_lb", "key_ub", "region_size"]
             for param in one_to_ones:
                 exec(f"params.{param} = mapper['{param}']")

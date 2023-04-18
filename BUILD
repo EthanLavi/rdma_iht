@@ -19,6 +19,7 @@ cc_library(
     hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "operation.h", "config.h"],
     copts = ["-std=c++2a"],
     deps = [
+        ":experiment_cc_proto",
         "@absl//absl/flags:flag",
         "@absl//absl/flags:parse",
         "@absl//absl/status",

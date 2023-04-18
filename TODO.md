@@ -11,9 +11,8 @@ Goal: Refining my IHT repo
 
 1. Populate function
 2. Concise functions
-3. Integrate experiment.proto
-4. Look into using docker as a build environment
-5. Alignment warnings in INIT
+3. Look into using docker as a build environment
+4. Alignment warnings in INIT
 
 Things to look into:
 

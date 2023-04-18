@@ -12,6 +12,7 @@
 #include "iht_ds.h"
 #include "operation.h"
 #include "config.h"
+#include "proto/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;
@@ -34,8 +35,8 @@ typedef IHT_Op<int, int> Operation;
 class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
-  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers) {
-    return std::unique_ptr<Client>(new Client(self, server, peers));
+  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, const ExperimentParams &params) {
+    return std::unique_ptr<Client>(new Client(self, server, peers, params));
   }
   
   static void signal_handler(int signal) { 
@@ -78,7 +79,7 @@ public:
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
-        std::chrono::milliseconds(10)); // TODO: change sampling rate. Does it fix the issue?
+        std::chrono::milliseconds(10)); // TODO: change sampling rate.
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(10));
     ROME_ASSERT_OK(driver->Stop());
@@ -128,12 +129,18 @@ public:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
         break;
     }
+    // Think in between operations for simulation purposes. 
+    if (params_.has_think_time() && params_.think_time() != 0){
+      auto start = util::SystemClock::now();
+      while (util::SystemClock::now() - start < std::chrono::nanoseconds(params_.think_time()));
+    }
     return absl::OkStatus();
   }
 
   /// @brief Runs single-client silent-server test cases on the iht
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(){
+    // TODO: Rewrite to test correctness of data structure
     test_output(iht_->contains(5), 0, "Contains 5");
     test_output(iht_->contains(4), 0, "Contains 4");
     test_output(iht_->insert(5, 10), 1, "Insert 5");
@@ -158,14 +165,14 @@ public:
     ROME_INFO("Stopping client...");
     auto conn = iht_->pool_.connection_manager()->GetConnection(host_.id);
     ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
-    RemoteObjectProto e;
+    AckProto e;
     
     auto sent = conn.value()->channel()->Send(e); // send the ack to let the server know that we are done
 
     // Wait to receive an ack back. Letting us know that the other clients are done.
-    auto msg = conn.value()->channel()->TryDeliver<RemoteObjectProto>();
+    auto msg = conn.value()->channel()->TryDeliver<AckProto>();
     while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
-        msg = conn.value()->channel()->TryDeliver<RemoteObjectProto>();
+        msg = conn.value()->channel()->TryDeliver<AckProto>();
     }
 
     // Return ok status
@@ -173,9 +180,8 @@ public:
   }
 
 private:
-  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers)
-      : self_(self), host_(host), 
-        peers_(peers) {
+  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, const ExperimentParams &params)
+      : self_(self), host_(host), params_(params), peers_(peers) {
           iht_ = std::make_unique<IHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id));
         }
 
@@ -183,6 +189,7 @@ private:
 
   const MemoryPool::Peer self_;
   const MemoryPool::Peer host_;
+  const ExperimentParams params_;
   std::vector<MemoryPool::Peer> peers_;
   std::unique_ptr<IHT> iht_;
   // std::barrier<> *barrier_;

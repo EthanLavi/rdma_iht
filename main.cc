@@ -40,9 +40,9 @@ int main(int argc, char** argv){
     bool bulk_operations = absl::GetFlag(FLAGS_send_bulk);
     bool test_operations = absl::GetFlag(FLAGS_send_test);
     bool do_exp = absl::GetFlag(FLAGS_send_exp);
-    ExperimentParams exp = ExperimentParams();
+    ExperimentParams params = ExperimentParams();
     std::string experiment_parms = absl::GetFlag(FLAGS_experiment_params);
-    bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &exp);
+    bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &params);
     ROME_ASSERT(success, "Couldn't parse protobuf");
 
     MemoryPool::Peer host{0, std::string(iphost), portNum};
@@ -86,7 +86,7 @@ int main(int argc, char** argv){
         // we are not node0, we are a peer
         peers.push_back(host);
         am_host = false;
-        std::unique_ptr<Client> client = Client::Create(receiver, host, peers);
+        std::unique_ptr<Client> client = Client::Create(receiver, host, peers, params);
         if (bulk_operations){
             bool done = false;
             absl::Status run_status = Client::Run(std::move(client), &done);
