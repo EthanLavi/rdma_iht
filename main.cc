@@ -14,6 +14,14 @@
 #include "rome/rdma/memory_pool/memory_pool.h"
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/logging/logging.h"
+#include "proto/experiment.pb.h"
+#include "rome/util/proto_util.h"
+#include "google/protobuf/text_format.h"
+
+ABSL_FLAG(std::string, experiment_params, "", "Experimental parameters");
+ABSL_FLAG(bool, send_bulk, false, "If to run bulk operations. (More for benchmarking)");
+ABSL_FLAG(bool, send_test, false, "If to test the functionality of the methods.");
+ABSL_FLAG(bool, send_exp, false, "If to run an experiment");
 
 #define PATH_MAX 4096
 
@@ -26,14 +34,16 @@ constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
 
-ABSL_FLAG(bool, send_bulk, false, "If to run bulk operations. (More for benchmarking)");
-ABSL_FLAG(bool, send_test, false, "If to test the functionality of the methods.");
-
 int main(int argc, char** argv){
     ROME_INIT_LOG();
     absl::ParseCommandLine(argc, argv);
     bool bulk_operations = absl::GetFlag(FLAGS_send_bulk);
     bool test_operations = absl::GetFlag(FLAGS_send_test);
+    bool do_exp = absl::GetFlag(FLAGS_send_exp);
+    ExperimentParams exp = ExperimentParams();
+    std::string experiment_parms = absl::GetFlag(FLAGS_experiment_params);
+    bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &exp);
+    ROME_ASSERT(success, "Couldn't parse protobuf");
 
     MemoryPool::Peer host{0, std::string(iphost), portNum};
     // MemoryPool::Peer rec{0, std::string(iphost), portNum+1};
