@@ -2,6 +2,8 @@
 
 #include <barrier>
 #include <chrono>
+#include <cstdlib>
+
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/rdma/memory_pool/memory_pool.h"
 #include "rome/colosseum/client_adaptor.h"
@@ -51,26 +53,37 @@ public:
   static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
     //Signal Handler
     signal(SIGINT, signal_handler);
+
+    ExperimentParams exp_params = client->params_;
     
     // Setup qps_controller.
     std::unique_ptr<rome::LeakyTokenBucketQpsController<util::SystemClock>>
         qps_controller =
-          rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(-1); // what is the value here
+          rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(exp_params.max_qps_second()); // what is the value here
 
     // auto *client_ptr = client.get();
     std::vector<Operation> operations = std::vector<Operation>();
     
-    // Populate
+    // TODO: Populate
     int i;
     for (i = 0; i < 100; i++){
       operations.push_back({INSERT, i, i});
     }
 
+    // initialize random number generator
+    std::srand((unsigned) std::time(NULL));
+
     // Deliver a workload
-    int WORKLOAD_AMOUNT = 10000;
+    int WORKLOAD_AMOUNT = exp_params.op_count();
     for(; i < WORKLOAD_AMOUNT; i++){
-      operations.push_back({INSERT, i, i});
-      // operations.push_back({REMOVE, i, i});
+      int rng = std::rand() % 100;
+      if (rng < exp_params.contains()){ // between 0 and CONTAINS
+        operations.push_back({CONTAINS, i, 0});
+      } else if (rng < exp_params.contains() + exp_params.insert()){ // between CONTAINS and CONTAINS + INSERT
+        operations.push_back({INSERT, i, i});
+      } else {
+        operations.push_back({REMOVE, i, 0});
+      }
     }
     
     std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
@@ -79,21 +92,10 @@ public:
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
-        std::chrono::milliseconds(10)); // TODO: change sampling rate.
+        std::chrono::milliseconds(exp_params.qps_sample_rate()));
     ROME_ASSERT_OK(driver->Start());
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    std::this_thread::sleep_for(std::chrono::seconds(exp_params.runtime()));
     ROME_ASSERT_OK(driver->Stop());
-
-    // Output results.
-    // ResultProto result;
-    // result.mutable_experiment_params()->CopyFrom(experiment_params);
-    // result.mutable_client()->CopyFrom(client_ptr->ToProto());
-    // result.mutable_driver()->CopyFrom(driver->ToProto());
-
-    // Sleep for a hot sec to let the server receive the messages sent by the
-    // clients before disconnecting.
-    // (see https://github.com/jacnel/project-x/issues/15)
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     return absl::OkStatus();
   }
 

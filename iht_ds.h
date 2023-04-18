@@ -234,7 +234,6 @@ public:
     /// @param key the key to search on
     /// @return if the key was found or not. The value at the key is stored in RdmaIHT::result
     bool contains(K key){
-        ROME_INFO("Starting contains...");
         // start at root
         remote_plist curr = pool_.Read<PList>(root);
         size_t depth = 1, count = PLIST_SIZE;
