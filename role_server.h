@@ -6,6 +6,7 @@
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/rdma/memory_pool/memory_pool.h"
 #include "config.h"
+#include "proto/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::rdma::RemoteObjectProto;
@@ -16,15 +17,15 @@ class Server {
 public:
   ~Server() = default;
 
-  static std::unique_ptr<Server> Create(MemoryPool::Peer server, std::vector<MemoryPool::Peer> clients) {
-    return std::unique_ptr<Server>(new Server(server, clients));
+  static std::unique_ptr<Server> Create(MemoryPool::Peer server, std::vector<MemoryPool::Peer> clients, ExperimentParams params) {
+    return std::unique_ptr<Server>(new Server(server, clients, params));
   }
 
   absl::Status Launch(volatile bool *done, int runtime_s) {
     ROME_INFO("Starting server...");
     // Starts Connection Manager and connects to peers
     iht_ = std::make_unique<IHT>(self_, std::move(cm_));
-    auto status = iht_->Init(self_, peers_);
+    auto status = iht_->Init(self_, peers_, params_.region_size());
     ROME_CHECK_OK(ROME_RETURN(status), status);
     ROME_INFO("We initialized the iht!");
 
@@ -63,13 +64,14 @@ public:
   }
 
 private:
-  Server(MemoryPool::Peer self, std::vector<MemoryPool::Peer> peers)
-      : self_(self), peers_(peers) {
+  Server(MemoryPool::Peer self, std::vector<MemoryPool::Peer> peers, ExperimentParams params)
+      : self_(self), peers_(peers), params_(params) {
         cm_ = std::make_unique<MemoryPool::cm_type>(self.id);
       }
 
   const MemoryPool::Peer self_;
   std::vector<MemoryPool::Peer> peers_;
+  const ExperimentParams params_;
   std::unique_ptr<MemoryPool::cm_type> cm_;
   std::unique_ptr<IHT> iht_;
 };

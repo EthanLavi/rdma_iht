@@ -181,9 +181,14 @@ public:
 
     RdmaIHT(MemoryPool::Peer self, std::unique_ptr<MemoryPool::cm_type> cm) : self_(self), pool_(self, std::move(cm)){};
 
-    absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
+    /// @brief Initialize the IHT by connecting to the peers and exchanging the PList pointer
+    /// @param host the leader of the initialization
+    /// @param peers all the nodes in the neighborhood
+    /// @param size_factor 2^size_factor bytes to be allocated
+    /// @return status code for the function
+    absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers, uint8_t size_factor) {
         is_host_ = self_.id == host.id;
-        uint32_t block_size = 1 << 24;
+        uint32_t block_size = 1 << size_factor;
 
         absl::Status status = pool_.Init(block_size, peers);
         ROME_CHECK_OK(ROME_RETURN(status), status);

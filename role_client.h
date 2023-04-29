@@ -37,64 +37,63 @@ typedef IHT_Op<int, int> Operation;
 class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
-  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, const ExperimentParams &params) {
+  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params) {
     return std::unique_ptr<Client>(new Client(self, server, peers, params));
-  }
-  
-  static void signal_handler(int signal) { 
-    ROME_INFO("SIGNAL: ", signal, " HANDLER!!!\n");
-    // TODO: SHould be called with a driver but not sure how to move ownership of ptr..
-    // this->Stop();
-    // Wait for all clients to be done shutting down
-    std::this_thread::sleep_for(std::chrono::seconds(5));
-    exit(1);
   }
 
   static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
-    //Signal Handler
-    signal(SIGINT, signal_handler);
-
-    ExperimentParams exp_params = client->params_;
+    // TODO: Signal Handler
+    // signal(SIGINT, signal_handler);
     
     // Setup qps_controller.
     std::unique_ptr<rome::LeakyTokenBucketQpsController<util::SystemClock>>
         qps_controller =
-          rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(exp_params.max_qps_second()); // what is the value here
+          rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(client->params_.max_qps_second()); // what is the value here
 
     // auto *client_ptr = client.get();
     std::vector<Operation> operations = std::vector<Operation>();
     
-    // TODO: Populate
-    int i;
-    for (i = 0; i < 100; i++){
-      operations.push_back({INSERT, i, i});
-    }
-
-    // initialize random number generator
+    // initialize random number generator and key_range
     std::srand((unsigned) std::time(NULL));
+    int key_range = client->params_.key_ub() - client->params_.key_lb();
 
-    // Deliver a workload
-    int WORKLOAD_AMOUNT = exp_params.op_count();
-    for(; i < WORKLOAD_AMOUNT; i++){
+    std::function<Operation(void)> generator = [&](){
       int rng = std::rand() % 100;
-      if (rng < exp_params.contains()){ // between 0 and CONTAINS
-        operations.push_back({CONTAINS, i, 0});
-      } else if (rng < exp_params.contains() + exp_params.insert()){ // between CONTAINS and CONTAINS + INSERT
-        operations.push_back({INSERT, i, i});
+      int k = (std::rand() / RAND_MAX) * key_range + client->params_.key_lb();
+      if (rng < client->params_.contains()){ // between 0 and CONTAINS
+        return Operation(CONTAINS, k, 0);
+      } else if (rng < client->params_.contains() + client->params_.insert()){ // between CONTAINS and CONTAINS + INSERT
+        return Operation(INSERT, k, k);
       } else {
-        operations.push_back({REMOVE, i, 0});
+        return Operation(REMOVE, k, 0);
       }
+    };
+
+    // Populate the data structure
+    for (int i = 0; i < key_range / 2; i++){
+      operations.push_back(generator());
     }
+
     
-    std::unique_ptr<rome::Stream<Operation>> workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
+    std::unique_ptr<rome::Stream<Operation>> workload_stream;
+    if(client->params_.unlimited_stream()){
+      workload_stream = std::make_unique<rome::EndlessStream<Operation>>(generator);
+    } else {
+      // Deliver a workload
+      int WORKLOAD_AMOUNT = client->params_.op_count();
+      for(int j = 0; j < WORKLOAD_AMOUNT; j++){
+        operations.push_back(generator());
+      }
+      workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
+    }
 
     // Create and start the workload driver (also starts client).
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
-        std::chrono::milliseconds(exp_params.qps_sample_rate()));
+        std::chrono::milliseconds(client->params_.qps_sample_rate()));
     ROME_ASSERT_OK(driver->Start());
-    std::this_thread::sleep_for(std::chrono::seconds(exp_params.runtime()));
+    std::this_thread::sleep_for(std::chrono::seconds(client->params_.runtime()));
     ROME_ASSERT_OK(driver->Stop());
     return absl::OkStatus();
   }
@@ -104,13 +103,12 @@ public:
     // Make the IHT
     ROME_INFO("Starting client...");
     // barrier_->arrive_and_wait(); //waits for all clients to get lock Initialized, addr from host
-    auto status = iht_->Init(host_, peers_); 
+    auto status = iht_->Init(host_, peers_, params_.region_size()); 
     ROME_CHECK_OK(ROME_RETURN(status), status);
     return status;
   }
 
   // Runs the next operation
-  // TODO: Make this function do bulk operations.
   absl::Status Apply(const Operation &op) override {
     count++;
     
@@ -140,25 +138,47 @@ public:
   }
 
   /// @brief Runs single-client silent-server test cases on the iht
+  /// @param at_scale is true for testing at scale (+10,000 operations)
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
-  absl::Status Operations(){
-    // TODO: Rewrite to test correctness of data structure
-    test_output(iht_->contains(5), 0, "Contains 5");
-    test_output(iht_->contains(4), 0, "Contains 4");
-    test_output(iht_->insert(5, 10), 1, "Insert 5");
-    test_output(iht_->insert(5, 11), 0, "Insert 5 again should fail");
-    test_output(iht_->result, 10, "Insert 5's failure, (result == old == 10)");
-    iht_->result = 0;
-    test_output(iht_->contains(5), 1, "Contains 5");
-    test_output(iht_->result, 10, "Contains 5 (result == 10)");
-    iht_->result = 0;
-    test_output(iht_->contains(4), 0, "Contains 4");
-    test_output(iht_->remove(5), 1, "Remove 5");
-    test_output(iht_->result, 10, "Remove 5 (result == 10)");
-    test_output(iht_->remove(4), 0, "Remove 4");
-    test_output(iht_->contains(5), 0, "Contains 5");
-    test_output(iht_->contains(4), 0, "Contains 4");
-    ROME_INFO("All cases passed");
+  absl::Status Operations(bool at_scale){
+    if (at_scale){
+      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 2;
+      for(int i = 0; i < scale_size; i++){
+        test_output(iht_->contains(i), 0, "Contains i false");
+        test_output(iht_->insert(i, i), 1, "Insert i");
+        test_output(iht_->contains(i), 1, "Contains i true");
+        test_output(iht_->result, i, "Result gets set properly");
+      }
+      for(int i = 0; i < scale_size; i++){
+        test_output(iht_->contains(i), 1, "Contains i maintains true");
+      }
+      for(int i = 0; i < scale_size; i++){
+        test_output(iht_->contains(i), 1, "Contains i true");
+        test_output(iht_->remove(i), 1, "Removes i");
+        test_output(iht_->contains(i), 0, "Contains i false");
+      }
+      for(int i = 0; i < scale_size; i++){
+        test_output(iht_->contains(i), 0, "Contains i maintains false");
+      }
+      ROME_INFO("All test cases passed");
+    } else {
+      test_output(iht_->contains(5), 0, "Contains 5");
+      test_output(iht_->contains(4), 0, "Contains 4");
+      test_output(iht_->insert(5, 10), 1, "Insert 5");
+      test_output(iht_->insert(5, 11), 0, "Insert 5 again should fail");
+      test_output(iht_->result, 10, "Insert 5's failure, (result == old == 10)");
+      iht_->result = 0;
+      test_output(iht_->contains(5), 1, "Contains 5");
+      test_output(iht_->result, 10, "Contains 5 (result == 10)");
+      iht_->result = 0;
+      test_output(iht_->contains(4), 0, "Contains 4");
+      test_output(iht_->remove(5), 1, "Remove 5");
+      test_output(iht_->result, 10, "Remove 5 (result == 10)");
+      test_output(iht_->remove(4), 0, "Remove 4");
+      test_output(iht_->contains(5), 0, "Contains 5");
+      test_output(iht_->contains(4), 0, "Contains 4");
+      ROME_INFO("All cases passed");
+    }
     return absl::OkStatus();
   }
 
@@ -182,8 +202,8 @@ public:
   }
 
 private:
-  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, const ExperimentParams &params)
-      : self_(self), host_(host), params_(params), peers_(peers) {
+  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params)
+      : self_(self), host_(host), peers_(peers), params_(params) {
           iht_ = std::make_unique<IHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id));
         }
 
@@ -191,8 +211,8 @@ private:
 
   const MemoryPool::Peer self_;
   const MemoryPool::Peer host_;
-  const ExperimentParams params_;
   std::vector<MemoryPool::Peer> peers_;
+  const ExperimentParams params_;
   std::unique_ptr<IHT> iht_;
   // std::barrier<> *barrier_;
 };
