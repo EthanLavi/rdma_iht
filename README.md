@@ -32,7 +32,7 @@ python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root
 10. Wait while configuring. Can check /tmp/rome/logs for updates.
 11. [ONCE FINISHED] Login to nodes or continue to run C&C using launch.py
 ```{bash}
-python launch.py --experiment_name={exp} --nodry_run --send_{bulk|test}
+python launch.py --experiment_name={exp} --nodry_run --send_{bulk|test|exp}
 ```
 
 ### Running in GDB
@@ -65,6 +65,8 @@ Implementation Issue:
 libc++abi: terminating with uncaught exception of type std::out_of_range: unordered_map::at: key not found
 ```
 This happens when we try to use the RDMA API to deal with remote pointers 'pointing' to ourselves...
+If we look at ibstat. We see two port numbers. The issue was, for some unknown reason, the second port made loopback fail.
+
 <br><br>
 
 Implementation Issue:
