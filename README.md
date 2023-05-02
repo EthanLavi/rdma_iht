@@ -93,7 +93,7 @@ This happens if the server shuts off before the client finishes!
         - gmock (/usr/local/include/gmock) 
         - gtest (/usr/local/include/gtest)
     - protos () <i>[Protocol Buffer Source](https://github.com/protocolbuffers/protobuf)</i>
-        - Compiling protoc -I=. --cpp_out=../../include file.proto
+        - Compiling protoc -I=. --cpp_out=. --python_out=. file.proto
         - Also adding path ```~/INSTALL/protobuf/src```
         - https://chromium.googlesource.com/external/github.com/protocolbuffers/protobuf/+/refs/tags/v3.7.1/src
 

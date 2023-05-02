@@ -18,6 +18,7 @@ using ::rome::rdma::remote_ptr;
 using ::rome::rdma::RemoteObjectProto;
 
 // TODO: Make allocation of PList be dynamic and not static size
+#define LOOPBACK_ON true;
 
 template<class K, class V, int ELIST_SIZE, int PLIST_SIZE>
 class RdmaIHT {
@@ -430,14 +431,5 @@ public:
             if (oldBucketBase) pool_.Deallocate<PList>(curr); // deallocate if curr was not ours
             return false;
         }
-    }
-
-    /// @brief Populate the data structure with values within the key range
-    /// @param n the number of values to populate with
-    /// @param keys the key range?
-    /// @param values 
-    void populate(int n, K* keys, V* values){
-        for (int i = 0; i < n; i++)
-            this->insert(keys[i], values[i]);
     }
 };

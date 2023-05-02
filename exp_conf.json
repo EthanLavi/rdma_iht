@@ -10,5 +10,6 @@
     "remove": 10,
     "key_lb": 0,
     "key_ub": 1000000,
-    "region_size": 22
+    "region_size": 22,
+    "thread_count": 1
 }

@@ -44,6 +44,7 @@ flags.DEFINE_integer('op_count', required=False, default=10000, help="The number
 flags.DEFINE_list('key_range', required=False, default=['0', '1e6'], help="Pass in two values to be the [lb,ub] of the key range. Can use e-notation as well.")
 flags.DEFINE_integer('region_size', required=False, default=22, help="2 ^ x bytes to allocate on each node")
 flags.DEFINE_bool('default', required=False, default=False, help="If to run the experiment with the default proto command")
+flags.DEFINE_integer('thread_count', required=False, default=1, help="The number of threads to start per client. Only applicable in send_exp")
 
 SINGLE_QUOTE = "'\"'\"'"
 def make_one_line(proto):
@@ -69,10 +70,10 @@ def execute(commands):
             else:
                 try:
                     subprocess.run(cmd, shell=True, check=True, stderr=f, stdout=f)
-                    print("Successful Startup")
+                    print(outfile, "Successful Startup")
                     return
-                except subprocess.CalledProcessError:
-                    print("Invalid Startup")
+                except subprocess.CalledProcessError as e:
+                    print(outfile, "Invalid Startup because", e)
 
     processes: List[Process] = []
     for cmd, file in commands:
@@ -92,11 +93,11 @@ def process_exp_flags():
             # Load the json into the proto
             json_data = f.read()
             mapper = json.loads(json_data)
-            one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "contains", "insert", "remove", "key_lb", "key_ub", "region_size"]
+            one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "contains", "insert", "remove", "key_lb", "key_ub", "region_size", "thread_count"]
             for param in one_to_ones:
                 exec(f"params.{param} = mapper['{param}']")
     elif not FLAGS.default:
-        one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "region_size"]
+        one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "region_size", "thread_count"]
         for param in one_to_ones:
             exec(f"params.{param} = FLAGS.{param}")
         contains, insert, remove = FLAGS.op_distribution.split("|")

@@ -37,8 +37,8 @@ typedef IHT_Op<int, int> Operation;
 class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
-  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params) {
-    return std::unique_ptr<Client>(new Client(self, server, peers, params));
+  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params, std::barrier<> *barrier) {
+    return std::unique_ptr<Client>(new Client(self, server, peers, params, barrier));
   }
 
   static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
@@ -102,9 +102,10 @@ public:
   absl::Status Start() override {
     // Make the IHT
     ROME_INFO("Starting client...");
-    // barrier_->arrive_and_wait(); //waits for all clients to get lock Initialized, addr from host
     auto status = iht_->Init(host_, peers_, params_.region_size()); 
     ROME_CHECK_OK(ROME_RETURN(status), status);
+    // Conditional to allow us to bypass the barrier for certain client types
+    if (barrier_ != nullptr) barrier_->arrive_and_wait();
     return status;
   }
 
@@ -141,6 +142,8 @@ public:
   /// @param at_scale is true for testing at scale (+10,000 operations)
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(bool at_scale){
+    absl::Status init_status = Start();
+    ROME_DEBUG("Init client is ok? {}", init_status.ok());
     if (at_scale){
       int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 2;
       for(int i = 0; i < scale_size; i++){
@@ -179,6 +182,8 @@ public:
       test_output(iht_->contains(4), 0, "Contains 4");
       ROME_INFO("All cases passed");
     }
+    absl::Status stop_status = Stop();
+    ROME_DEBUG("Stopping client is ok? {}", stop_status.ok());
     return absl::OkStatus();
   }
 
@@ -202,8 +207,8 @@ public:
   }
 
 private:
-  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params)
-      : self_(self), host_(host), peers_(peers), params_(params) {
+  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier)
+      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier) {
           iht_ = std::make_unique<IHT>(self_, std::make_unique<MemoryPool::cm_type>(self.id));
         }
 
@@ -214,5 +219,5 @@ private:
   std::vector<MemoryPool::Peer> peers_;
   const ExperimentParams params_;
   std::unique_ptr<IHT> iht_;
-  // std::barrier<> *barrier_;
+  std::barrier<> *barrier_;
 };

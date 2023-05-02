@@ -13,6 +13,15 @@ Goal: Refining my IHT repo
 2. Concise functions
 3. Look into using docker as a build environment
 4. Alignment warnings in INIT
+5. Add more threads/nodes
+6. Fix safety in lock
+7. Reallocation should be 2n-1 and not 2n
+8. Fix deallocation issue with EList
+
+TMRW:
+Make memory pool shared among threads
+Rework to start using loopback... (maybe start with just the lock for now? Just to fix safety in lock)
+Add metrics and export startegy
 
 Things to look into:
 
