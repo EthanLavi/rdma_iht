@@ -99,10 +99,9 @@ private:
     bool acquire(remote_lock lock){
         // Spin while trying to acquire the lock
         while (true){
-            remote_lock local_lock = lock;
-            if (lock.id() != self_.id) local_lock = pool_.Read<lock_type>(lock);
+            remote_lock local_lock = pool_.Read<lock_type>(lock);
             auto v = local_lock->load();
-            if (lock.id() != self_.id) pool_.Deallocate<lock_type>(local_lock, 8); // free the local copy (have to delete "8" because we need to take into account alignment!)
+            pool_.Deallocate<lock_type>(local_lock, 8); // free the local copy (have to delete "8" because we need to take into account alignment!)
 
             // Permanent unlock
             if (v == P_UNLOCKED){
@@ -110,11 +109,7 @@ private:
             }
 
             // If we can switch from unlock to lock status
-            if (lock.id() != self_.id){
-                if (pool_.CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED) == E_UNLOCKED) return true;
-            } else if (v == E_UNLOCKED){
-                if (lock->compare_exchange_weak(v, E_LOCKED)) return true;
-            }
+            if (pool_.CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED) == E_UNLOCKED) return true;
         }
     }
 
@@ -122,8 +117,7 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        if (lock.id() != self_.id) pool_.AtomicSwap(lock, unlock_status);
-        else *lock = unlock_status;
+        pool_.AtomicSwap<lock_type>(lock, unlock_status);
     }
 
     /// @brief Change the baseptr from a given bucket (could be remote as well) 

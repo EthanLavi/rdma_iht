@@ -32,7 +32,6 @@ using ::rome::rdma::MemoryPool;
 using ::rome::rdma::ConnectionManager;
 
 constexpr char iphost[] = "node0";
-constexpr char ippeer[] = "node1";
 constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
@@ -48,26 +47,54 @@ int main(int argc, char** argv){
     bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &params);
     ROME_ASSERT(success, "Couldn't parse protobuf");
 
-    MemoryPool::Peer host{0, std::string(iphost), portNum};
-    // MemoryPool::Peer rec{0, std::string(iphost), portNum+1};
-    // MemoryPool::Peer rec2{0, std::string(iphost), portNum+2};
-    
-    MemoryPool::Peer receiver{1, std::string(ippeer), portNum + 1};
-
-    std::vector<MemoryPool::Peer> peers;
-
     // Get hostname to determine who we are
     char hostname[4096];
     gethostname(hostname, 4096);
 
+    // Start initializing a vector of peers
+    MemoryPool::Peer host{0, std::string(iphost), portNum};
+    MemoryPool::Peer self;
+    std::vector<MemoryPool::Peer> peers;
+    peers.push_back(host);
+
+    if (params.node_count() == 0){
+        ROME_INFO("Cannot start experiment. Node count was found to be 0");
+        exit(1);
+    }
+
+    // Make the peer list by iterating through the node count
+    for(int n = 1; n < params.node_count(); n++){
+        // Create the ip_peer (really just node name)
+        std::string ippeer = "node";
+        std::string node_id = std::to_string(n);
+        ippeer.append(node_id);
+        // Create the peer and add it to the list
+        MemoryPool::Peer next{static_cast<uint16_t>(n), ippeer, portNum};
+        peers.push_back(next);
+        // Compare after 4th character to node_id
+        if (strncmp(hostname + 4, node_id.c_str(), node_id.length()) == 0){
+            // If matching, next is self
+            self = next;
+        }
+    }
+    
+    for(int i = 0; i < params.node_count(); i++){
+        ROME_INFO("-- {}", peers[i].id);
+    }
+    ROME_INFO("self {}", self.id);
+    ROME_INFO("host {}", host.id);
+
+    // Temp guard
+    exit(0);
+
     std::vector<std::thread*> threads(0);
-    if (hostname[4] != '0'){
+    if (hostname[4] == '0'){
         // If dedicated server-node, we must start the server
         std::thread t = std::thread([&](){
             // We are the server
             std::unique_ptr<Server> server = Server::Create(host, peers, params);
             bool done = false;
-            absl::Status run_status = server->Launch(&done, 0);            
+            absl::Status run_status = server->Launch(&done, params.runtime());            
             ROME_DEBUG("Running the server works? {}", run_status.ok());
         });
         threads.push_back(&t);
@@ -80,7 +107,7 @@ int main(int argc, char** argv){
 
     if (!do_exp){
         // Not doing experiment, so just create some test clients
-        std::unique_ptr<Client> client = Client::Create(receiver, host, peers, params, nullptr);
+        std::unique_ptr<Client> client = Client::Create(self, host, peers, params, nullptr);
         if (bulk_operations){
             absl::Status status = client->Operations(true);
             ROME_DEBUG("Starting client is ok? {}", status.ok());
@@ -95,7 +122,7 @@ int main(int argc, char** argv){
 
     for(int n = 0; n < params.thread_count(); n++){
         std::thread t = std::thread([&](){
-            std::unique_ptr<Client> client = Client::Create(receiver, host, peers, params, &client_sync);
+            std::unique_ptr<Client> client = Client::Create(self, host, peers, params, &client_sync);
             bool done = false;
             absl::Status run_status = Client::Run(std::move(client), &done);
             ROME_DEBUG("Running the IHT works? {}", run_status.ok());

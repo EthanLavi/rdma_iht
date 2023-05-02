@@ -19,7 +19,6 @@
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
-using ::rome::rdma::RemoteObjectProto;
 
 typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 

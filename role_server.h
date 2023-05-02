@@ -9,7 +9,6 @@
 #include "proto/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
-using ::rome::rdma::RemoteObjectProto;
 
 typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 
@@ -31,9 +30,7 @@ public:
 
     // Sleep while clients are running if there is a set runtime.
     if (runtime_s > 0) {
-      // auto runtime = std::chrono::seconds();
-      // std::this_thread::sleep_for(runtime);
-      // *done = true; // Just run once
+      std::this_thread::sleep_for(std::chrono::seconds(runtime_s));
     }
 
     // Wait for all clients to be done.
@@ -43,9 +40,9 @@ public:
         return conn_or.status();
 
       auto *conn = conn_or.value();
-      auto msg = conn->channel()->TryDeliver<RemoteObjectProto>();
+      auto msg = conn->channel()->TryDeliver<AckProto>();
       while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
-        msg = conn->channel()->TryDeliver<RemoteObjectProto>();
+        msg = conn->channel()->TryDeliver<AckProto>();
       }
     }
 
@@ -55,7 +52,7 @@ public:
       if (!conn_or.ok())
         return conn_or.status();
       auto *conn = conn_or.value();
-      RemoteObjectProto e;
+      AckProto e;
       // Send back an ack proto let the client know that all the other clients are done
       auto sent = conn->channel()->Send(e);
     }

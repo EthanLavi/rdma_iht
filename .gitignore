@@ -38,4 +38,5 @@ results/
 .DS_Store
 
 # Temporarirly silence my experiment.proto file
-experiment.proto
+proto/experiment_pb2.py
+proto/experiment.pb.*
