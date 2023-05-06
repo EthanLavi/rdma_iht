@@ -20,22 +20,27 @@ public:
     return std::unique_ptr<Server>(new Server(server, clients, params));
   }
 
-  absl::Status Launch(volatile bool *done, int runtime_s) {
-    ROME_INFO("Starting server...");
+  absl::Status Launch(MemoryPool* pool, volatile bool *done, int runtime_s) {
+    ROME_INFO("SERVER :: Starting server...");
     // Starts Connection Manager and connects to peers
-    iht_ = std::make_unique<IHT>(self_, std::move(cm_));
-    auto status = iht_->Init(self_, peers_, params_.region_size());
+    iht_ = std::make_unique<IHT>(self_, pool);
+    ROME_INFO("SERVER :: Created the IHT");
+    auto status = iht_->Init(self_, peers_);
     ROME_CHECK_OK(ROME_RETURN(status), status);
-    ROME_INFO("We initialized the iht!");
+    ROME_INFO("SERVER :: We initialized the iht!");
 
     // Sleep while clients are running if there is a set runtime.
     if (runtime_s > 0) {
+      ROME_INFO("SERVER :: Sleeping for {}", runtime_s);
       std::this_thread::sleep_for(std::chrono::seconds(runtime_s));
+      ROME_INFO("SERVER :: End sleep");
     }
 
     // Wait for all clients to be done.
     for (auto &p : peers_) {
-      auto conn_or = iht_->pool_.connection_manager()->GetConnection(p.id);
+      if (p.id == self_.id) continue; // ignore self since joining threads will force client and server to end at the same time
+      ROME_INFO("SERVER :: sending fin to {}", p.id);
+      auto conn_or = iht_->pool_->connection_manager()->GetConnection(p.id);
       if (!conn_or.ok())
         return conn_or.status();
 
@@ -48,7 +53,9 @@ public:
 
     // Let all clients know that we are done
     for (auto &p : peers_) {
-      auto conn_or = iht_->pool_.connection_manager()->GetConnection(p.id);
+      if (p.id == self_.id) continue; // ignore self since joining threads will force client and server to end at the same time
+      ROME_INFO("SERVER :: receiving fin from {}", p.id);
+      auto conn_or = iht_->pool_->connection_manager()->GetConnection(p.id);
       if (!conn_or.ok())
         return conn_or.status();
       auto *conn = conn_or.value();

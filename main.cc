@@ -4,7 +4,7 @@
 #include <string>
 #include <iostream>
 #include <ostream>
-#include <thread> 
+#include <thread>
 
 // View c++ version __cplusplus
 #define version_info __cplusplus
@@ -54,12 +54,19 @@ int main(int argc, char** argv){
     // Start initializing a vector of peers
     MemoryPool::Peer host{0, std::string(iphost), portNum};
     MemoryPool::Peer self;
+    bool outside_exp = true;
     std::vector<MemoryPool::Peer> peers;
     peers.push_back(host);
 
     if (params.node_count() == 0){
         ROME_INFO("Cannot start experiment. Node count was found to be 0");
         exit(1);
+    }
+    
+    // Set values if we are host machine as well
+    if (hostname[4] == '0'){
+        self = host;
+        outside_exp = false;
     }
 
     // Make the peer list by iterating through the node count
@@ -75,39 +82,44 @@ int main(int argc, char** argv){
         if (strncmp(hostname + 4, node_id.c_str(), node_id.length()) == 0){
             // If matching, next is self
             self = next;
+            outside_exp = false;
         }
     }
-    
-    for(int i = 0; i < params.node_count(); i++){
-        ROME_INFO("-- {}", peers[i].id);
+
+    if (outside_exp){
+        ROME_INFO("Not in experiment. Shutting down");
+        return 0;
     }
-    ROME_INFO("self {}", self.id);
-    ROME_INFO("host {}", host.id);
 
-    // Temp guard
-    exit(0);
+    // Make a memory pool for the node to share among all client instances
+    uint32_t block_size = 1 << params.region_size();
+    MemoryPool pool = MemoryPool(self, std::make_unique<MemoryPool::cm_type>(self.id));
+    
+    absl::Status status = pool.Init(block_size, peers);
+    ROME_ASSERT_OK(status);
+    ROME_INFO("Created memory pool");
 
-    std::vector<std::thread*> threads(0);
+    std::vector<std::thread> threads;
     if (hostname[4] == '0'){
         // If dedicated server-node, we must start the server
-        std::thread t = std::thread([&](){
+        threads.emplace_back(std::thread([&](){
             // We are the server
             std::unique_ptr<Server> server = Server::Create(host, peers, params);
             bool done = false;
-            absl::Status run_status = server->Launch(&done, params.runtime());            
+            ROME_INFO("Server Created");
+            absl::Status run_status = server->Launch(&pool, &done, params.runtime());            
             ROME_DEBUG("Running the server works? {}", run_status.ok());
-        });
-        threads.push_back(&t);
+        }));
         if (!do_exp){
             // Just do server when we are running testing operations
-            t.join();
+            threads[0].join();
             exit(0);
         }
     }
 
     if (!do_exp){
         // Not doing experiment, so just create some test clients
-        std::unique_ptr<Client> client = Client::Create(self, host, peers, params, nullptr);
+        std::unique_ptr<Client> client = Client::Create(&pool, self, host, peers, params, nullptr);
         if (bulk_operations){
             absl::Status status = client->Operations(true);
             ROME_DEBUG("Starting client is ok? {}", status.ok());
@@ -118,21 +130,26 @@ int main(int argc, char** argv){
         exit(0);
     }
 
+    // Barrier to start all the clients at the same time
     std::barrier client_sync = std::barrier(params.thread_count());
 
     for(int n = 0; n < params.thread_count(); n++){
-        std::thread t = std::thread([&](){
-            std::unique_ptr<Client> client = Client::Create(self, host, peers, params, &client_sync);
+        // Add the thread
+        threads.emplace_back(std::thread([&](){
+            // Create and run a client in a thread
+            std::unique_ptr<Client> client = Client::Create(&pool, self, host, peers, params, &client_sync);
             bool done = false;
+            ROME_INFO("Client Created");
             absl::Status run_status = Client::Run(std::move(client), &done);
-            ROME_DEBUG("Running the IHT works? {}", run_status.ok());
-        });
-        threads.push_back(&t);
+            ROME_INFO("Running the IHT works? {}", run_status.ok());
+        }));
     }
 
     // Join all threads
+    int i = 0;
     for (auto it = threads.begin(); it != threads.end(); it++){
-        auto t = *it;
+        ROME_INFO("Syncing {}", ++i);
+        auto t = it;
         t->join();
     }
     return 0;

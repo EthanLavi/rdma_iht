@@ -10,13 +10,11 @@ Goal: IHT Operations with rehashing
 Goal: Refining my IHT repo
 
 1. Populate function
-2. Concise functions
-3. Look into using docker as a build environment
-4. Alignment warnings in INIT
-5. Add more threads/nodes
-6. Fix safety in lock
-7. Reallocation should be 2n-1 and not 2n
-8. Fix deallocation issue with EList
+2. Conciser functions
+3. Alignment warnings in INIT
+4. Add more threads/nodes
+5. Reallocation should be 2n-1 and not 2n
+6. Fix deallocation issue with EList
 
 TMRW:
 Make memory pool shared among threads
