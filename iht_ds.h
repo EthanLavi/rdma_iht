@@ -240,7 +240,7 @@ public:
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         size_t depth = 1, count = PLIST_SIZE;
-        bool oldBucketBase = root.id() != self_.id;
+        bool oldBucketBase = true;
         while (true) {
             uint64_t bucket = level_hash(key, depth, count);
             remote_baseptr bucket_base = curr->buckets[bucket].base;
@@ -294,7 +294,7 @@ public:
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
         size_t depth = 1, count = PLIST_SIZE;
-        bool oldBucketBase = root.id() != self_.id;
+        bool oldBucketBase = true;
         while (true){
             uint64_t bucket = level_hash(key, depth, count);
             remote_baseptr bucket_base = curr->buckets[bucket].base;
@@ -374,7 +374,7 @@ public:
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
         size_t depth = 1, count = PLIST_SIZE;
-        bool oldBucketBase = root.id() != self_.id;
+        bool oldBucketBase = true;
         while (true) {
             uint64_t bucket = level_hash(key, depth, count);
             remote_baseptr bucket_base = curr->buckets[bucket].base;

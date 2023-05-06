@@ -1,2 +1,2 @@
-#define CNF_ELIST_SIZE 7
-#define CNF_PLIST_SIZE 128
+#define CNF_ELIST_SIZE 7 // 7
+#define CNF_PLIST_SIZE 128 // 128

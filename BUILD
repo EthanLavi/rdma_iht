@@ -4,7 +4,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 
 proto_library(
     name = "experiment_proto",
-    srcs = ["proto/experiment.proto"],
+    srcs = ["protos/experiment.proto"],
     deps = [],
 )
 

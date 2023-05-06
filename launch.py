@@ -5,7 +5,7 @@ import os
 from typing import List
 import csv
 import json
-import proto.experiment_pb2 as protos
+import protos.experiment_pb2 as protos
 
 def domain_name(nodetype):
     """Function to get domain name"""

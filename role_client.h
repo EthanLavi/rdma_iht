@@ -14,7 +14,7 @@
 #include "iht_ds.h"
 #include "operation.h"
 #include "config.h"
-#include "proto/experiment.pb.h"
+#include "protos/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;

@@ -6,7 +6,7 @@
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/rdma/memory_pool/memory_pool.h"
 #include "config.h"
-#include "proto/experiment.pb.h"
+#include "protos/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
 

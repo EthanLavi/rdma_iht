@@ -17,7 +17,7 @@
 #include "rome/rdma/memory_pool/memory_pool.h"
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/logging/logging.h"
-#include "proto/experiment.pb.h"
+#include "protos/experiment.pb.h"
 #include "rome/util/proto_util.h"
 #include "google/protobuf/text_format.h"
 

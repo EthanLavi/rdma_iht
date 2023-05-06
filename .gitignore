@@ -40,3 +40,6 @@ results/
 # Temporarirly silence my experiment.proto file
 proto/experiment_pb2.py
 proto/experiment.pb.*
+protos/experiment.pb.*
+protos/experiment_pb2.py
+protos/__pycache__
