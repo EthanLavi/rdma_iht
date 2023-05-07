@@ -143,7 +143,6 @@ private:
     /// @param pdepth The depth of `parent`
     /// @param pidx   The index in `parent` of the bucket to rehash
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
-        ROME_INFO("Depth of the data structure:: {}", pdepth);
         // TODO: the plist size should double in size
         pcount = pcount * 2;
         int plist_size_factor = (pcount / PLIST_SIZE); // pow(2, pdepth); // how much bigger than original size we are 
@@ -185,23 +184,17 @@ public:
 
         if (is_host_){
             // Host machine, it is my responsibility to initiate configuration
-
-            // Allocate data in pool
             RemoteObjectProto proto;
             remote_plist iht_root = pool_->Allocate<PList>();
-            ROME_INFO("Can do allocation");
+            // Init plist and set remote proto to communicate its value
             InitPList(iht_root, 1);    
-            ROME_INFO("Can do init");
             this->root = iht_root;
-            ROME_INFO("What here?");
             proto.set_raddr(iht_root.address());
-            ROME_INFO("No proto error");
 
             // Iterate through peers
             for (auto p = peers.begin(); p != peers.end(); p++){
                 // Ignore sending pointer to myself
                 if (p->id == self_.id) continue;
-                ROME_INFO("Doing messaging");
 
                 // Form a connection with the machine
                 auto conn_or = pool_->connection_manager()->GetConnection(p->id);
@@ -445,6 +438,8 @@ public:
         for (int c = 0; c < op_count; c++){
             int k = dist(gen) * key_range + key_lb;
             insert(k, value);
+            // Wait some time before doing next insert...
+            std::this_thread::sleep_for(std::chrono::nanoseconds(10));
         }
     }
 };

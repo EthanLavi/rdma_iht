@@ -52,6 +52,7 @@ int main(int argc, char** argv){
     gethostname(hostname, 4096);
 
     // Start initializing a vector of peers
+    volatile bool done = false;
     MemoryPool::Peer host{0, std::string(iphost), portNum};
     MemoryPool::Peer self;
     bool outside_exp = true;
@@ -105,10 +106,10 @@ int main(int argc, char** argv){
         threads.emplace_back(std::thread([&](){
             // We are the server
             std::unique_ptr<Server> server = Server::Create(host, peers, params);
-            bool done = false;
             ROME_INFO("Server Created");
-            absl::Status run_status = server->Launch(&pool, &done, params.runtime());            
-            ROME_DEBUG("Running the server works? {}", run_status.ok());
+            absl::Status run_status = server->Launch(&pool, &done, params.runtime());  
+            ROME_ASSERT_OK(run_status);          
+            ROME_INFO("[SERVER THREAD] -- End of execution; -- ");
         }));
         if (!do_exp){
             // Just do server when we are running testing operations
@@ -135,14 +136,13 @@ int main(int argc, char** argv){
 
     for(int n = 0; n < params.thread_count(); n++){
         // Add the thread
-        threads.emplace_back(std::thread([&](){
+        threads.emplace_back(std::thread([&](bool pop){
             // Create and run a client in a thread
             std::unique_ptr<Client> client = Client::Create(&pool, self, host, peers, params, &client_sync);
-            bool done = false;
-            ROME_INFO("Client Created");
-            absl::Status run_status = Client::Run(std::move(client), &done);
-            ROME_INFO("Running the IHT works? {}", run_status.ok());
-        }));
+            absl::Status status = Client::Run(std::move(client), &done, pop ? (0.5 / (double) params.node_count()) : 0);
+            ROME_ASSERT_OK(status);
+            ROME_INFO("[CLIENT THREAD] -- End of execution; -- ");
+        }, n == 0));
     }
 
     // Join all threads
@@ -152,5 +152,7 @@ int main(int argc, char** argv){
         auto t = it;
         t->join();
     }
+
+    ROME_INFO("[MAIN] -- End of execution; -- ");
     return 0;
 }

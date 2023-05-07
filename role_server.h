@@ -20,26 +20,36 @@ public:
     return std::unique_ptr<Server>(new Server(server, clients, params));
   }
 
+  /// @brief Start the server
+  /// @param pool the memory pool to use
+  /// @param done a bool for inter-thread communication
+  /// @param runtime_s how long to wait before listening for finishing messages
+  /// @return the status
   absl::Status Launch(MemoryPool* pool, volatile bool *done, int runtime_s) {
     ROME_INFO("SERVER :: Starting server...");
     // Starts Connection Manager and connects to peers
     iht_ = std::make_unique<IHT>(self_, pool);
-    ROME_INFO("SERVER :: Created the IHT");
     auto status = iht_->Init(self_, peers_);
     ROME_CHECK_OK(ROME_RETURN(status), status);
-    ROME_INFO("SERVER :: We initialized the iht!");
 
     // Sleep while clients are running if there is a set runtime.
     if (runtime_s > 0) {
       ROME_INFO("SERVER :: Sleeping for {}", runtime_s);
+      // We sleep for an extra 2 seconds to let the client populate the data structure
       std::this_thread::sleep_for(std::chrono::seconds(runtime_s));
-      ROME_INFO("SERVER :: End sleep");
+    }
+
+    // Sync with the clients
+    while(!done){
+      ROME_INFO("Inside !done");
+      // Sleep for a half second while not done
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
     // Wait for all clients to be done.
     for (auto &p : peers_) {
       if (p.id == self_.id) continue; // ignore self since joining threads will force client and server to end at the same time
-      ROME_INFO("SERVER :: sending fin to {}", p.id);
+      ROME_INFO("SERVER :: receiving ack to {}", p.id);
       auto conn_or = iht_->pool_->connection_manager()->GetConnection(p.id);
       if (!conn_or.ok())
         return conn_or.status();
@@ -54,7 +64,7 @@ public:
     // Let all clients know that we are done
     for (auto &p : peers_) {
       if (p.id == self_.id) continue; // ignore self since joining threads will force client and server to end at the same time
-      ROME_INFO("SERVER :: receiving fin from {}", p.id);
+      ROME_INFO("SERVER :: sending ack from {}", p.id);
       auto conn_or = iht_->pool_->connection_manager()->GetConnection(p.id);
       if (!conn_or.ok())
         return conn_or.status();
@@ -63,7 +73,6 @@ public:
       // Send back an ack proto let the client know that all the other clients are done
       auto sent = conn->channel()->Send(e);
     }
-
     return absl::OkStatus();
   }
 

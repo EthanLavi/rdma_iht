@@ -40,7 +40,33 @@ public:
     return std::unique_ptr<Client>(new Client(pool, self, server, peers, params, barrier));
   }
 
-  static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done) {
+  /// @brief Initialize the data structure
+  /// @return the status
+  absl::Status Init(){
+      // Make the IHT
+      absl::Status status = iht_->Init(host_, peers_); 
+      ROME_ASSERT_OK(status);
+      return absl::OkStatus();
+  }
+
+  /// @brief Run the client
+  /// @param client the client instance to run with
+  /// @param done a volatile bool for inter-thread communication
+  /// @param frac if 0, won't populate. Otherwise, will do this fraction of the population
+  /// @return the  status
+  static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done, double frac) {
+    absl::Status status = client->Init();
+    ROME_ASSERT_OK(status);
+    if (frac != 0){
+      int key_lb = client->params_.key_lb(), key_ub = client->params_.key_ub();
+      int op_count = (key_ub - key_lb) * frac;
+      ROME_INFO("CLIENT :: Data structure ({}%) is being populated ({} items inserted) by this client", frac * 100, op_count);
+      client->iht_->populate(op_count, key_lb, key_ub, 0);
+      ROME_INFO("CLIENT :: Done with populate!");
+      // TODO: Sleeping for 1 second to account for difference between remote client start times. Must fix this in the future to a better solution
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
     // TODO: Signal Handler
     // signal(SIGINT, signal_handler);
     
@@ -72,8 +98,6 @@ public:
       }
     };
 
-    ROME_INFO("CLIENT :: Created generator");
-
     // Generate two streams based on what the user wants (operation count or timed stream)
     std::unique_ptr<rome::Stream<Operation>> workload_stream;
     if(client->params_.unlimited_stream()){
@@ -87,8 +111,6 @@ public:
       workload_stream = std::make_unique<rome::TestStream<Operation>>(operations);
     }
 
-    ROME_INFO("CLIENT :: Created workload strema");
-
     // Create and start the workload driver (also starts client and lets it run).
     int32_t runtime = client->params_.runtime();
     int32_t qps_sample_rate = client->params_.qps_sample_rate();
@@ -99,19 +121,19 @@ public:
     ROME_INFO("CLIENT :: Created workload driver");
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(runtime));
+    // Wait for all the clients to stop. Then set the done to true to release the server
+    *done = true;
     ROME_ASSERT_OK(driver->Stop());
+    ROME_INFO("RUN RETURNING");
     return absl::OkStatus();
   }
 
   // Start the client
   absl::Status Start() override {
-    // Make the IHT
     ROME_INFO("CLIENT :: Starting client...");
-    auto status = iht_->Init(host_, peers_); 
-    ROME_CHECK_OK(ROME_RETURN(status), status);
     // Conditional to allow us to bypass the barrier for certain client types
     if (barrier_ != nullptr) barrier_->arrive_and_wait();
-    return status;
+    return absl::OkStatus();
   }
 
   // Runs the next operation
@@ -147,8 +169,8 @@ public:
   /// @param at_scale is true for testing at scale (+10,000 operations)
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(bool at_scale){
-    absl::Status init_status = Start();
-    ROME_DEBUG("Init client is ok? {}", init_status.ok());
+    absl::Status status = Init();
+    ROME_ASSERT_OK(status);
     
     if (at_scale){
       int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
@@ -196,11 +218,10 @@ public:
   // A function for communicating with the server that we are done. Will wait until server says it is ok to shut down
   absl::Status Stop() override {
     ROME_INFO("CLIENT :: Stopping client...");
-    if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
+     if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
     auto conn = iht_->pool_->connection_manager()->GetConnection(host_.id);
     ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
     AckProto e;
-    
     auto sent = conn.value()->channel()->Send(e); // send the ack to let the server know that we are done
 
     // Wait to receive an ack back. Letting us know that the other clients are done.
