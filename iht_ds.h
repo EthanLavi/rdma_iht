@@ -18,7 +18,6 @@ using ::rome::rdma::remote_ptr;
 using ::rome::rdma::RemoteObjectProto;
 
 // TODO: Make allocation of PList be dynamic and not static size
-#define LOOPBACK_ON true;
 
 template<class K, class V, int ELIST_SIZE, int PLIST_SIZE>
 class RdmaIHT {
@@ -33,7 +32,7 @@ private:
 
     // "Super class" for the elist and plist structs
     struct Base {};
-    typedef std::atomic<uint64_t> lock_type;
+    typedef uint64_t lock_type;
     typedef remote_ptr<Base> remote_baseptr;
     typedef remote_ptr<lock_type> remote_lock;
 
@@ -92,7 +91,7 @@ private:
         }
     }
 
-    remote_ptr<PList> root;  // Start of plist
+    remote_plist root;  // Start of plist
     std::hash<K> pre_hash; // Hash function from k -> size_t [this currently does nothing as the value of the int can just be returned :: though included for templating this class]
     
     /// Acquire a lock on the bucket. Will prevent others from modifying it
@@ -100,7 +99,7 @@ private:
         // Spin while trying to acquire the lock
         while (true){
             remote_lock local_lock = pool_->Read<lock_type>(lock);
-            auto v = local_lock->load();
+            lock_type v = *std::to_address(local_lock);
             pool_->Deallocate<lock_type>(local_lock, 8); // free the local copy (have to delete "8" because we need to take into account alignment!)
 
             // Permanent unlock
@@ -113,10 +112,11 @@ private:
         }
     }
 
-    /// @brief Unlock a lock. ==> the reverse of acquire
+    /// @brief Unlock a lock ==> the reverse of acquire
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
+        // pool_->Write<lock_type>(lock, unlock_status);
         pool_->AtomicSwap<lock_type>(lock, unlock_status);
     }
 
@@ -169,7 +169,8 @@ private:
     }
 public:
     MemoryPool* pool_;
-    K result = 0; // value to modify upon completing an operation. Might as well grab the previous value if we are there. 
+    volatile K result = 0; // value to modify upon completing an operation. Might as well grab the previous value if we are there.
+    // volatile to ensure thread safety 
 
     using conn_type = MemoryPool::conn_type;
 
@@ -187,7 +188,7 @@ public:
             RemoteObjectProto proto;
             remote_plist iht_root = pool_->Allocate<PList>();
             // Init plist and set remote proto to communicate its value
-            InitPList(iht_root, 1);    
+            InitPList(iht_root, 1);
             this->root = iht_root;
             proto.set_raddr(iht_root.address());
 
@@ -207,20 +208,20 @@ public:
         } else {
             // Listen for a connection
             auto conn_or = pool_->connection_manager()->GetConnection(host.id);
-            // ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
+            ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
 
             // Try to get the data from the machine, repeatedly trying until successful
             auto got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
             while(got.status().code() == absl::StatusCode::kUnavailable) {
                 got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
             }
-            // ROME_CHECK_OK(ROME_RETURN(got.status()), got);
+            ROME_CHECK_OK(ROME_RETURN(got.status()), got);
 
             // From there, decode the data into a value
             remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
             this->root = iht_root;
         }
-        ROME_INFO("Init finished");
+        ROME_INFO("Init IHT finished");
 
         return absl::OkStatus();
     }
@@ -262,15 +263,15 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
-                    unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     result = e->pairs[i].val;
+                    unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
                     return true;
                 }
             }
 
-            // Can't find, unlock and return fasle
+            // Can't find, unlock and return false
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours

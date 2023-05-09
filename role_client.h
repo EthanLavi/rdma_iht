@@ -19,6 +19,7 @@
 using ::rome::rdma::MemoryPool;
 using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
+using ::rome::WorkloadDriverProto;
 
 typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 
@@ -36,27 +37,16 @@ typedef IHT_Op<int, int> Operation;
 class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
-  Create(MemoryPool* pool, const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params, std::barrier<> *barrier) {
-    return std::unique_ptr<Client>(new Client(pool, self, server, peers, params, barrier));
-  }
-
-  /// @brief Initialize the data structure
-  /// @return the status
-  absl::Status Init(){
-      // Make the IHT
-      absl::Status status = iht_->Init(host_, peers_); 
-      ROME_ASSERT_OK(status);
-      return absl::OkStatus();
+  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params, std::barrier<> *barrier, IHT* iht) {
+    return std::unique_ptr<Client>(new Client(self, server, peers, params, barrier, iht));
   }
 
   /// @brief Run the client
   /// @param client the client instance to run with
   /// @param done a volatile bool for inter-thread communication
   /// @param frac if 0, won't populate. Otherwise, will do this fraction of the population
-  /// @return the  status
-  static absl::Status Run(std::unique_ptr<Client> client, volatile bool *done, double frac) {
-    absl::Status status = client->Init();
-    ROME_ASSERT_OK(status);
+  /// @return the resultproto
+  static absl::StatusOr<WorkloadDriverProto> Run(std::unique_ptr<Client> client, volatile bool *done, double frac) {
     if (frac != 0){
       int key_lb = client->params_.key_lb(), key_ub = client->params_.key_ub();
       int op_count = (key_ub - key_lb) * frac;
@@ -64,6 +54,7 @@ public:
       client->iht_->populate(op_count, key_lb, key_ub, 0);
       ROME_INFO("CLIENT :: Done with populate!");
       // TODO: Sleeping for 1 second to account for difference between remote client start times. Must fix this in the future to a better solution
+      // The idea is even though remote nodes won't being workload at the same time, at least the data structure is guaranteed to be populated
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -118,14 +109,14 @@ public:
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
         std::chrono::milliseconds(qps_sample_rate));
-    ROME_INFO("CLIENT :: Created workload driver");
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(runtime));
     // Wait for all the clients to stop. Then set the done to true to release the server
+    ROME_INFO("Setting done to 10");
     *done = true;
     ROME_ASSERT_OK(driver->Stop());
-    ROME_INFO("RUN RETURNING");
-    return absl::OkStatus();
+    ROME_INFO("CLIENT :: Driver generated {}", driver->ToString());
+    return driver->ToProto();
   }
 
   // Start the client
@@ -168,12 +159,9 @@ public:
   /// @brief Runs single-client silent-server test cases on the iht
   /// @param at_scale is true for testing at scale (+10,000 operations)
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
-  absl::Status Operations(bool at_scale){
-    absl::Status status = Init();
-    ROME_ASSERT_OK(status);
-    
+  absl::Status Operations(bool at_scale){    
     if (at_scale){
-      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
+      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 16;
       for(int i = 0; i < scale_size; i++){
         test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" false"));
         test_output(true, iht_->insert(i, i), 1, std::string("Insert ") + std::to_string(i));
@@ -235,10 +223,8 @@ public:
   }
 
 private:
-  Client(MemoryPool* pool, const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier)
-      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier) {
-          iht_ = std::make_unique<IHT>(self_, pool);
-        }
+  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier, IHT* iht)
+      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier), iht_(iht) {}
 
   int count = 0;
 
@@ -246,6 +232,6 @@ private:
   const MemoryPool::Peer host_;
   std::vector<MemoryPool::Peer> peers_;
   const ExperimentParams params_;
-  std::unique_ptr<IHT> iht_;
   std::barrier<> *barrier_;
+  IHT* iht_;
 };

@@ -32,7 +32,7 @@ python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root
 10. Wait while configuring. Can check /tmp/rome/logs for updates.
 11. [ONCE FINISHED] Login to nodes or continue to run C&C using launch.py
 ```{bash}
-python launch.py --experiment_name={exp} --nodry_run --send_{bulk|test|exp} --from_param_config=exp_conf.json
+python launch.py --experiment_name={exp} --nodry_run --from_param_config=exp_conf.json --send_{bulk|test|exp}
 ```
 
 ### Running in GDB

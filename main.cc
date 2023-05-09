@@ -96,19 +96,23 @@ int main(int argc, char** argv){
     uint32_t block_size = 1 << params.region_size();
     MemoryPool pool = MemoryPool(self, std::make_unique<MemoryPool::cm_type>(self.id));
     
-    absl::Status status = pool.Init(block_size, peers);
-    ROME_ASSERT_OK(status);
+    absl::Status status_pool = pool.Init(block_size, peers);
+    ROME_ASSERT_OK(status_pool);
     ROME_INFO("Created memory pool");
+
+    IHT iht = IHT(self, &pool);
+    absl::Status status_iht = iht.Init(host, peers);
+    ROME_ASSERT_OK(status_iht);
 
     std::vector<std::thread> threads;
     if (hostname[4] == '0'){
         // If dedicated server-node, we must start the server
         threads.emplace_back(std::thread([&](){
             // We are the server
-            std::unique_ptr<Server> server = Server::Create(host, peers, params);
+            std::unique_ptr<Server> server = Server::Create(host, peers, params, &pool);
             ROME_INFO("Server Created");
-            absl::Status run_status = server->Launch(&pool, &done, params.runtime());  
-            ROME_ASSERT_OK(run_status);          
+            absl::Status run_status = server->Launch(&done, params.runtime());  
+            ROME_ASSERT_OK(run_status);
             ROME_INFO("[SERVER THREAD] -- End of execution; -- ");
         }));
         if (!do_exp){
@@ -120,7 +124,7 @@ int main(int argc, char** argv){
 
     if (!do_exp){
         // Not doing experiment, so just create some test clients
-        std::unique_ptr<Client> client = Client::Create(&pool, self, host, peers, params, nullptr);
+        std::unique_ptr<Client> client = Client::Create(self, host, peers, params, nullptr, &iht);
         if (bulk_operations){
             absl::Status status = client->Operations(true);
             ROME_DEBUG("Starting client is ok? {}", status.ok());
@@ -133,16 +137,20 @@ int main(int argc, char** argv){
 
     // Barrier to start all the clients at the same time
     std::barrier client_sync = std::barrier(params.thread_count());
-
+    WorkloadDriverProto results[params.thread_count()];
     for(int n = 0; n < params.thread_count(); n++){
         // Add the thread
-        threads.emplace_back(std::thread([&](bool pop){
+        threads.emplace_back(std::thread([&](int index){
             // Create and run a client in a thread
-            std::unique_ptr<Client> client = Client::Create(&pool, self, host, peers, params, &client_sync);
-            absl::Status status = Client::Run(std::move(client), &done, pop ? (0.5 / (double) params.node_count()) : 0);
-            ROME_ASSERT_OK(status);
+            std::unique_ptr<Client> client = Client::Create(self, host, peers, params, &client_sync, &iht);
+            absl::StatusOr<WorkloadDriverProto> output = Client::Run(std::move(client), &done, index == 0 ? (0.5 / (double) params.node_count()) : 0);
+            if (output.ok()){
+                results[index] = output.value();
+            } else {
+                ROME_ERROR("Client run failed");
+            }
             ROME_INFO("[CLIENT THREAD] -- End of execution; -- ");
-        }, n == 0));
+        }, n));
     }
 
     // Join all threads
@@ -151,6 +159,10 @@ int main(int argc, char** argv){
         ROME_INFO("Syncing {}", ++i);
         auto t = it;
         t->join();
+    }
+
+    for (int i = 0; i < params.thread_count(); i++){
+        ROME_INFO("PROTO RESULTS FOR THREAD {}: {}", i, results[i].DebugString());
     }
 
     ROME_INFO("[MAIN] -- End of execution; -- ");
