@@ -22,7 +22,7 @@ A Rome based IHT implementation.
 6. cd into ./rome/scripts
 7. [ONCE FINISHED] Run sync command to check availability
 ```{bash}
-python rexec.py --nodefile=nodefiles/r320.csv  --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync
+python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync
 ```
 8. Check logs at /tmp/rome/logs for success
 9. Run start up script
@@ -37,7 +37,8 @@ python launch.py --experiment_name={exp} --nodry_run --from_param_config=exp_con
 
 ### Running in GDB
 
-```gdb -ex run -ex bt -ex q -ex y --args bazel-bin/main```
+```gdb bazel-bin/main```
+```run --send_exp '--experiment_params=think_time: 100 qps_sample_rate: 10 max_qps_second: -1 runtime: 2 unlimited_stream: false op_count: 10000 contains: 100 insert: 0 remove: 0 key_lb: 0 key_ub: 10000 region_size: 25 thread_count: 2 node_count: 2' ```
 
 ## Errors
 

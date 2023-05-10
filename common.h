@@ -1,3 +1,5 @@
+#pragma once
+
 #define CONTAINS 0
 #define INSERT 1
 #define REMOVE 2

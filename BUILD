@@ -16,7 +16,7 @@ cc_proto_library(
 cc_library(
     name = "iht_ds",
     srcs = ["iht_ds.cpp"],
-    hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "operation.h", "config.h"],
+    hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "common.h"],
     copts = ["-std=c++2a"],
     deps = [
         ":experiment_cc_proto",

@@ -22,13 +22,11 @@ using ::rome::rdma::RemoteObjectProto;
 template<class K, class V, int ELIST_SIZE, int PLIST_SIZE>
 class RdmaIHT {
 private:
-    bool is_host_;
     MemoryPool::Peer self_;
 
     // "Poor-mans" enum to represent the state of a node. P-lists cannot be locked 
-    const uint64_t E_LOCKED = 0;
-    const uint64_t E_UNLOCKED = 1;
-    const uint64_t P_UNLOCKED = 2;
+    // E_LOCKED = 1, E_UNLOCKED = 2, P_UNLOCKED = 3
+    const uint64_t E_LOCKED = 1, E_UNLOCKED = 2, P_UNLOCKED = 3;
 
     // "Super class" for the elist and plist structs
     struct Base {};
@@ -181,7 +179,7 @@ public:
     /// @param peers all the nodes in the neighborhood
     /// @return status code for the function
     absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
-        is_host_ = self_.id == host.id;
+        bool is_host_ = self_.id == host.id;
 
         if (is_host_){
             // Host machine, it is my responsibility to initiate configuration
@@ -221,7 +219,7 @@ public:
             remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
             this->root = iht_root;
         }
-        ROME_INFO("Init IHT finished");
+        ROME_INFO("Init IHT finished {} Peer@{}", this->root, self_.port);
 
         return absl::OkStatus();
     }
@@ -429,6 +427,7 @@ public:
     /// @param key_ub the upper bound for the key range
     /// @param value the value to associate with each key. Since we are benchmarking. This value doesn't matter!
     void populate(int op_count, K key_lb, K key_ub, V value){
+        return; // TODO turn on populate
         // Populate only works when we have numerical keys
         K key_range = key_ub - key_lb;
 

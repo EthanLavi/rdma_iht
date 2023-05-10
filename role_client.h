@@ -12,8 +12,7 @@
 #include "rome/colosseum/workload_driver.h"
 #include "rome/util/clocks.h"
 #include "iht_ds.h"
-#include "operation.h"
-#include "config.h"
+#include "common.h"
 #include "protos/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
@@ -112,7 +111,6 @@ public:
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(runtime));
     // Wait for all the clients to stop. Then set the done to true to release the server
-    ROME_INFO("Setting done to 10");
     *done = true;
     ROME_ASSERT_OK(driver->Stop());
     ROME_INFO("CLIENT :: Driver generated {}", driver->ToString());
@@ -161,10 +159,10 @@ public:
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(bool at_scale){    
     if (at_scale){
-      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 16;
+      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
       for(int i = 0; i < scale_size; i++){
         test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" false"));
-        test_output(true, iht_->insert(i, i), 1, std::string("Insert ") + std::to_string(i));
+        test_output(false, iht_->insert(i, i), 1, std::string("Insert ") + std::to_string(i));
         test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" true"));
         test_output(false, iht_->result, i, std::string("Result gets set properly for ") + std::to_string(i));
       }

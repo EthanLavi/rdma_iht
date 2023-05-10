@@ -11,7 +11,7 @@
 #include "rome/rdma/connection_manager/connection_manager.h"
 #include "rome/logging/logging.h"
 #include "iht_ds.h"
-#include "config.h"
+#include "common.h"
 
 using rome::rdma::ConnectionManager;
 using rome::rdma::MemoryPool;

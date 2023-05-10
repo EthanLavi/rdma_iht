@@ -5,6 +5,8 @@ import os
 from typing import List
 import csv
 import json
+import sys
+sys.path.insert(1, '..')
 import protos.experiment_pb2 as protos
 
 def domain_name(nodetype):
@@ -21,7 +23,7 @@ FLAGS = flags.FLAGS
 # Experiment configuration
 flags.DEFINE_string('ssh_keyfile', '~/.ssh/id_rsa', 'Path to ssh file for authentication')
 flags.DEFINE_string('ssh_user', 'esl225', 'Username for login')
-flags.DEFINE_string('nodefile', '../rome/scripts/nodefiles/r320.csv', 'Path to csv with the node names')
+flags.DEFINE_string('nodefile', '../../rome/scripts/nodefiles/r320.csv', 'Path to csv with the node names')
 flags.DEFINE_string('experiment_name', None, 'Used as local save directory', required=True)
 flags.DEFINE_string('bin_dir', 'RDMA/rdma_iht', 'Directory where we run bazel build from')
 flags.DEFINE_bool('dry_run', required=True, default=None, help='Print the commands instead of running them')

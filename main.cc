@@ -45,8 +45,8 @@ int main(int argc, char** argv){
     ExperimentParams params = ExperimentParams();
     std::string experiment_parms = absl::GetFlag(FLAGS_experiment_params);
     bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &params);
-    ROME_ASSERT(success, "Couldn't parse protobuf");
-
+    ROME_ASSERT(success, "Couldn't parse protobuf");    
+    
     // Get hostname to determine who we are
     char hostname[4096];
     gethostname(hostname, 4096);
@@ -95,6 +95,10 @@ int main(int argc, char** argv){
     // Make a memory pool for the node to share among all client instances
     uint32_t block_size = 1 << params.region_size();
     MemoryPool pool = MemoryPool(self, std::make_unique<MemoryPool::cm_type>(self.id));
+
+    for(int i = 0; i < peers.size(); i++){
+    ROME_INFO("Peer list {}:{}@{}", i, peers.at(i).id, peers.at(i).address);
+    }
     
     absl::Status status_pool = pool.Init(block_size, peers);
     ROME_ASSERT_OK(status_pool);
@@ -132,6 +136,11 @@ int main(int argc, char** argv){
             absl::Status status = client->Operations(false);
             ROME_DEBUG("Starting client is ok? {}", status.ok());
         }
+        // Set done flag
+        done = true;
+
+        // Just do server when we are running testing operations
+        threads[0].join();
         exit(0);
     }
 
