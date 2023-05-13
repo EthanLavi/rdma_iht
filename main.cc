@@ -97,7 +97,7 @@ int main(int argc, char** argv){
     MemoryPool pool = MemoryPool(self, std::make_unique<MemoryPool::cm_type>(self.id));
 
     for(int i = 0; i < peers.size(); i++){
-    ROME_INFO("Peer list {}:{}@{}", i, peers.at(i).id, peers.at(i).address);
+        ROME_INFO("Peer list {}:{}@{}", i, peers.at(i).id, peers.at(i).address);
     }
     
     absl::Status status_pool = pool.Init(block_size, peers);
@@ -120,6 +120,7 @@ int main(int argc, char** argv){
             ROME_INFO("[SERVER THREAD] -- End of execution; -- ");
         }));
         if (!do_exp){
+            done = true;
             // Just do server when we are running testing operations
             threads[0].join();
             exit(0);
@@ -131,16 +132,12 @@ int main(int argc, char** argv){
         std::unique_ptr<Client> client = Client::Create(self, host, peers, params, nullptr, &iht);
         if (bulk_operations){
             absl::Status status = client->Operations(true);
-            ROME_DEBUG("Starting client is ok? {}", status.ok());
+            ROME_ASSERT_OK(status);
         } else if (test_operations) {
             absl::Status status = client->Operations(false);
-            ROME_DEBUG("Starting client is ok? {}", status.ok());
+            ROME_ASSERT_OK(status);
         }
-        // Set done flag
-        done = true;
-
-        // Just do server when we are running testing operations
-        threads[0].join();
+        ROME_INFO("[TEST] -- End of execution; -- ");
         exit(0);
     }
 
@@ -174,6 +171,6 @@ int main(int argc, char** argv){
         ROME_INFO("PROTO RESULTS FOR THREAD {}: {}", i, results[i].DebugString());
     }
 
-    ROME_INFO("[MAIN] -- End of execution; -- ");
+    ROME_INFO("[EXPERIMENT] -- End of execution; -- ");
     return 0;
 }

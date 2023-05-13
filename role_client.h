@@ -128,19 +128,23 @@ public:
   // Runs the next operation
   absl::Status Apply(const Operation &op) override {
     count++;
-    
+    bool success;
     switch (op.op_type){
       case(CONTAINS):
         ROME_INFO("Running Operation: contains({})", op.key);
-        iht_->contains(op.key);
+        success = iht_->contains(op.key);
+        if (success) ROME_ASSERT(iht_->result == op.key, "Invalid result of contains operation");
+        iht_->result = 0;
         break;
       case(INSERT):
         ROME_INFO("Running Operation: insert({}, {})", op.key, op.value);
-        iht_->insert(op.key, op.value);
+        success = iht_->insert(op.key, op.value);
         break;
       case(REMOVE):
         ROME_INFO("Running Operation: remove({})", op.key);
-        iht_->remove(op.key);
+        success = iht_->remove(op.key);
+        if (success) ROME_ASSERT(iht_->result == op.key, "Invalid result of remove operation");
+        iht_->result = 0;
         break;
       default:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
@@ -166,14 +170,17 @@ public:
         test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" true"));
         test_output(false, iht_->result, i, std::string("Result gets set properly for ") + std::to_string(i));
       }
+      ROME_INFO(" = 25% Finished = ");
       for(int i = 0; i < scale_size; i++){
         test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" maintains true"));
       }
+      ROME_INFO(" = 50% Finished = ");
       for(int i = 0; i < scale_size; i++){
         test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" true"));
         test_output(false, iht_->remove(i), 1, std::string("Removes ") + std::to_string(i));
         test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" false"));
       }
+      ROME_INFO(" = 75% Finished = ");
       for(int i = 0; i < scale_size; i++){
         test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" maintains false"));
       }
@@ -197,7 +204,7 @@ public:
       ROME_INFO("All cases passed");
     }
     absl::Status stop_status = Stop();
-    ROME_DEBUG("Stopping client is ok? {}", stop_status.ok());
+    ROME_ASSERT_OK(stop_status);
     return absl::OkStatus();
   }
 
@@ -210,11 +217,15 @@ public:
     AckProto e;
     auto sent = conn.value()->channel()->Send(e); // send the ack to let the server know that we are done
 
+    ROME_INFO("CLIENT :: Sent Ack");
+
     // Wait to receive an ack back. Letting us know that the other clients are done.
     auto msg = conn.value()->channel()->TryDeliver<AckProto>();
     while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
         msg = conn.value()->channel()->TryDeliver<AckProto>();
     }
+
+    ROME_INFO("CLIENT :: Received Ack");
 
     // Return ok status
     return absl::OkStatus();

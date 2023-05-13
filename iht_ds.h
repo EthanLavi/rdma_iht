@@ -219,7 +219,7 @@ public:
             remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
             this->root = iht_root;
         }
-        ROME_INFO("Init IHT finished {} Peer@{}", this->root, self_.port);
+        ROME_INFO("Init IHT finished {} --> {}", this->root, self_.address);
 
         return absl::OkStatus();
     }
@@ -427,7 +427,6 @@ public:
     /// @param key_ub the upper bound for the key range
     /// @param value the value to associate with each key. Since we are benchmarking. This value doesn't matter!
     void populate(int op_count, K key_lb, K key_ub, V value){
-        return; // TODO turn on populate
         // Populate only works when we have numerical keys
         K key_range = key_ub - key_lb;
 
