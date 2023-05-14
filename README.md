@@ -20,7 +20,7 @@ A Rome based IHT implementation.
 4. Edit ./rome/scripts/nodefiles/r320.csv with data from listview
 5. conda activate rdma. And then wait while configuring.
 6. cd into ./rome/scripts
-7. [ONCE FINISHED] Run sync command to check availability
+7. [ONCE FINISHED] Run sync command to check availability (if alias available)
 ```{bash}
 python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync
 ```
@@ -38,7 +38,7 @@ python launch.py --experiment_name={exp} --nodry_run --from_param_config=exp_con
 ### Running in GDB
 
 ```
-bazel build main --compilation_mode=dbg
+bazel build main --compilation_mode=dbg --log_level=info
 ```
 
 ```
@@ -46,7 +46,7 @@ gdb bazel-bin/main
 ```
 
 ```
-run --send_exp '--experiment_params=think_time: 100 qps_sample_rate: 10 max_qps_second: -1 runtime: 2 unlimited_stream: false op_count: 10000 contains: 100 insert: 0 remove: 0 key_lb: 0 key_ub: 10000 region_size: 25 thread_count: 2 node_count: 2' 
+run --send_exp '--experiment_params=think_time: 100 qps_sample_rate: 10 max_qps_second: -1 runtime: 2 unlimited_stream: false op_count: 10000 contains: 80 insert: 10 remove: 10 key_lb: 0 key_ub: 10000 region_size: 25 thread_count: 4 node_count: 2' 
 ```
 
 ## Errors
