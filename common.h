@@ -15,3 +15,13 @@ struct IHT_Op {
     IHT_Op(int op_type_, K key_, V value_) : op_type(op_type_), key(key_), value(value_) {};
 };
 
+/// @brief Output for IHT that includes a status and a value
+struct IHT_Res {
+    bool status;
+    int result;
+
+    IHT_Res(bool status, int result){
+        this->status = status;
+        this->result = result;
+    }
+};

@@ -23,9 +23,9 @@ using ::rome::WorkloadDriverProto;
 typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 
 // Function to run a test case
-void test_output(bool show_passing, int actual, int expected, std::string message){
-    if (actual != expected){
-      ROME_INFO("[-] {} func():{} != expected:{}", message, actual, expected);
+void test_output(bool show_passing, IHT_Res actual, IHT_Res expected, std::string message){
+    if (actual.status != expected.status && actual.result != expected.result){
+      ROME_INFO("[-] {} func():({},{}) != expected:({},{})", message, actual.status, actual.result, expected.status, expected.result);
     } else if (show_passing) {
       ROME_INFO("[+] Test Case {} Passed!", message);
     }
@@ -36,8 +36,8 @@ typedef IHT_Op<int, int> Operation;
 class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
-  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params, std::barrier<> *barrier, IHT* iht) {
-    return std::unique_ptr<Client>(new Client(self, server, peers, params, barrier, iht));
+  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params, std::barrier<> *barrier, IHT* iht, bool master_client) {
+    return std::unique_ptr<Client>(new Client(self, server, peers, params, barrier, iht, master_client));
   }
 
   /// @brief Run the client
@@ -46,11 +46,11 @@ public:
   /// @param frac if 0, won't populate. Otherwise, will do this fraction of the population
   /// @return the resultproto
   static absl::StatusOr<WorkloadDriverProto> Run(std::unique_ptr<Client> client, volatile bool *done, double frac) {
-    if (frac != 0){
+    if (client->master_client_){
       int key_lb = client->params_.key_lb(), key_ub = client->params_.key_ub();
       int op_count = (key_ub - key_lb) * frac;
       ROME_INFO("CLIENT :: Data structure ({}%) is being populated ({} items inserted) by this client", frac * 100, op_count);
-      client->iht_->populate(op_count, key_lb, key_ub, 0);
+      client->iht_->populate(op_count, key_lb, key_ub, [=](int key){ return key; });
       ROME_INFO("CLIENT :: Done with populate!");
       // TODO: Sleeping for 1 second to account for difference between remote client start times. Must fix this in the future to a better solution
       // The idea is even though remote nodes won't being workload at the same time, at least the data structure is guaranteed to be populated
@@ -104,6 +104,7 @@ public:
     // Create and start the workload driver (also starts client and lets it run).
     int32_t runtime = client->params_.runtime();
     int32_t qps_sample_rate = client->params_.qps_sample_rate();
+    std::barrier<>* barr = client->barrier_;
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
@@ -111,8 +112,10 @@ public:
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(runtime));
     // Wait for all the clients to stop. Then set the done to true to release the server
+    if (barr != nullptr) barr->arrive_and_wait(); // set server status once all clients are done
     *done = true;
     ROME_ASSERT_OK(driver->Stop());
+    if (barr != nullptr) barr->arrive_and_wait(); // Stop all at the same time
     ROME_INFO("CLIENT :: Driver generated {}", driver->ToString());
     return driver->ToProto();
   }
@@ -121,6 +124,7 @@ public:
   absl::Status Start() override {
     ROME_INFO("CLIENT :: Starting client...");
     // Conditional to allow us to bypass the barrier for certain client types
+    // We want to start at the same time
     if (barrier_ != nullptr) barrier_->arrive_and_wait();
     return absl::OkStatus();
   }
@@ -128,23 +132,21 @@ public:
   // Runs the next operation
   absl::Status Apply(const Operation &op) override {
     count++;
-    bool success;
+    IHT_Res res = IHT_Res(false, 0);
     switch (op.op_type){
       case(CONTAINS):
         ROME_INFO("Running Operation: contains({})", op.key);
-        success = iht_->contains(op.key);
-        if (success) ROME_ASSERT(iht_->result == op.key, "Invalid result of contains operation");
-        iht_->result = 0;
+        res = iht_->contains(op.key);
+        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of contains operation");
         break;
       case(INSERT):
         ROME_INFO("Running Operation: insert({}, {})", op.key, op.value);
-        success = iht_->insert(op.key, op.value);
+        res = iht_->insert(op.key, op.value);
         break;
       case(REMOVE):
         ROME_INFO("Running Operation: remove({})", op.key);
-        success = iht_->remove(op.key);
-        if (success) ROME_ASSERT(iht_->result == op.key, "Invalid result of remove operation");
-        iht_->result = 0;
+        res = iht_->remove(op.key);
+        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of remove operation");
         break;
       default:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
@@ -165,42 +167,35 @@ public:
     if (at_scale){
       int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" false"));
-        test_output(false, iht_->insert(i, i), 1, std::string("Insert ") + std::to_string(i));
-        test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" true"));
-        test_output(false, iht_->result, i, std::string("Result gets set properly for ") + std::to_string(i));
+        test_output(false, iht_->contains(i), IHT_Res(false, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
+        test_output(false, iht_->insert(i, i), IHT_Res(true, 0), std::string("Insert ") + std::to_string(i));
+        test_output(false, iht_->contains(i), IHT_Res(true, i), std::string("Contains ") + std::to_string(i) + std::string(" true"));
       }
       ROME_INFO(" = 25% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" maintains true"));
+        test_output(false, iht_->contains(i), IHT_Res(true, i), std::string("Contains ") + std::to_string(i) + std::string(" maintains true"));
       }
       ROME_INFO(" = 50% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), 1, std::string("Contains ") + std::to_string(i) + std::string(" true"));
-        test_output(false, iht_->remove(i), 1, std::string("Removes ") + std::to_string(i));
-        test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" false"));
+        test_output(false, iht_->remove(i), IHT_Res(true, i), std::string("Removes ") + std::to_string(i));
+        test_output(false, iht_->contains(i), IHT_Res(false, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
       }
       ROME_INFO(" = 75% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), 0, std::string("Contains ") + std::to_string(i) + std::string(" maintains false"));
+        test_output(false, iht_->contains(i), IHT_Res(false, 0), std::string("Contains ") + std::to_string(i) + std::string(" maintains false"));
       }
       ROME_INFO("All test cases passed");
     } else {
-      test_output(true, iht_->contains(5), 0, "Contains 5");
-      test_output(true, iht_->contains(4), 0, "Contains 4");
-      test_output(true, iht_->insert(5, 10), 1, "Insert 5");
-      test_output(true, iht_->insert(5, 11), 0, "Insert 5 again should fail");
-      test_output(true, iht_->result, 10, "Insert 5's failure, (result == old == 10)");
-      iht_->result = 0;
-      test_output(true, iht_->contains(5), 1, "Contains 5");
-      test_output(true, iht_->result, 10, "Contains 5 (result == 10)");
-      iht_->result = 0;
-      test_output(true, iht_->contains(4), 0, "Contains 4");
-      test_output(true, iht_->remove(5), 1, "Remove 5");
-      test_output(true, iht_->result, 10, "Remove 5 (result == 10)");
-      test_output(true, iht_->remove(4), 0, "Remove 4");
-      test_output(true, iht_->contains(5), 0, "Contains 5");
-      test_output(true, iht_->contains(4), 0, "Contains 4");
+      test_output(true, iht_->contains(5), IHT_Res(false, 0), "Contains 5");
+      test_output(true, iht_->contains(4), IHT_Res(false, 0), "Contains 4");
+      test_output(true, iht_->insert(5, 10), IHT_Res(true, 0), "Insert 5");
+      test_output(true, iht_->insert(5, 11), IHT_Res(false, 10), "Insert 5 again should fail");
+      test_output(true, iht_->contains(5), IHT_Res(true, 10), "Contains 5");
+      test_output(true, iht_->contains(4), IHT_Res(false, 0), "Contains 4");
+      test_output(true, iht_->remove(5), IHT_Res(true, 10), "Remove 5");
+      test_output(true, iht_->remove(4), IHT_Res(false, 0), "Remove 4");
+      test_output(true, iht_->contains(5), IHT_Res(false, 0), "Contains 5");
+      test_output(true, iht_->contains(4), IHT_Res(false, 0), "Contains 4");
       ROME_INFO("All cases passed");
     }
     absl::Status stop_status = Stop();
@@ -211,7 +206,8 @@ public:
   // A function for communicating with the server that we are done. Will wait until server says it is ok to shut down
   absl::Status Stop() override {
     ROME_INFO("CLIENT :: Stopping client...");
-     if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
+    if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
+    if (!master_client_) return absl::OkStatus(); // if we aren't the master client we don't need to do the stop sequence
     auto conn = iht_->pool_->connection_manager()->GetConnection(host_.id);
     ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
     AckProto e;
@@ -232,8 +228,8 @@ public:
   }
 
 private:
-  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier, IHT* iht)
-      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier), iht_(iht) {}
+  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier, IHT* iht, bool master_client)
+      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier), iht_(iht), master_client_(master_client) {}
 
   int count = 0;
 
@@ -243,4 +239,5 @@ private:
   const ExperimentParams params_;
   std::barrier<> *barrier_;
   IHT* iht_;
+  bool master_client_;
 };

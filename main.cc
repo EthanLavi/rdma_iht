@@ -88,6 +88,7 @@ int main(int argc, char** argv){
     }
 
     if (outside_exp){
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); // So we get this printed last
         ROME_INFO("Not in experiment. Shutting down");
         return 0;
     }
@@ -129,7 +130,7 @@ int main(int argc, char** argv){
 
     if (!do_exp){
         // Not doing experiment, so just create some test clients
-        std::unique_ptr<Client> client = Client::Create(self, host, peers, params, nullptr, &iht);
+        std::unique_ptr<Client> client = Client::Create(self, host, peers, params, nullptr, &iht, true);
         if (bulk_operations){
             absl::Status status = client->Operations(true);
             ROME_ASSERT_OK(status);
@@ -148,8 +149,8 @@ int main(int argc, char** argv){
         // Add the thread
         threads.emplace_back(std::thread([&](int index){
             // Create and run a client in a thread
-            std::unique_ptr<Client> client = Client::Create(self, host, peers, params, &client_sync, &iht);
-            absl::StatusOr<WorkloadDriverProto> output = Client::Run(std::move(client), &done, index == 0 ? (0.5 / (double) params.node_count()) : 0);
+            std::unique_ptr<Client> client = Client::Create(self, host, peers, params, &client_sync, &iht, index == 0);
+            absl::StatusOr<WorkloadDriverProto> output = Client::Run(std::move(client), &done, 0.5 / (double) params.node_count());
             if (output.ok()){
                 results[index] = output.value();
             } else {

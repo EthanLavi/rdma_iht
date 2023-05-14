@@ -19,7 +19,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('ssh_keyfile', '~/.ssh/id_rsa', 'Path to ssh file for authentication')
 flags.DEFINE_string('ssh_user', 'esl225', 'Username for login')
 flags.DEFINE_string('nodefile', '../../rome/scripts/nodefiles/r320.csv', 'Path to csv with the node names')
-flags.DEFINE_bool('dry_run', required=True, default=None, help='Print the commands instead of running them')
+flags.DEFINE_bool('dry_run', required=False, default=False, help='Print the commands instead of running them')
 
 
 def quote(string):

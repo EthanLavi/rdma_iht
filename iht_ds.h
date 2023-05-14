@@ -10,6 +10,7 @@
 #include "rome/rdma/memory_pool/memory_pool.h"
 #include "rome/rdma/rdma_memory.h"
 #include "rome/logging/logging.h"
+#include "common.h"
 
 using ::rome::rdma::ConnectionManager;
 using ::rome::rdma::MemoryPool;
@@ -94,19 +95,18 @@ private:
     
     /// Acquire a lock on the bucket. Will prevent others from modifying it
     bool acquire(remote_lock lock){
+        if (lock == remote_nullptr || lock.address() == 0x01) {
+            ROME_INFO("[!!] Remote Nullptr Found At Lock");
+            return true;
+        }
         // Spin while trying to acquire the lock
         while (true){
-            remote_lock local_lock = pool_->Read<lock_type>(lock);
-            lock_type v = *std::to_address(local_lock);
-            pool_->Deallocate<lock_type>(local_lock, 8); // free the local copy (have to delete "8" because we need to take into account alignment!)
+            lock_type v = pool_->CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED);
 
             // Permanent unlock
-            if (v == P_UNLOCKED){
-                return false;
-            }
-
+            if (v == P_UNLOCKED) return false;
             // If we can switch from unlock to lock status
-            if (pool_->CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED) == E_UNLOCKED) return true;
+            if (v == E_UNLOCKED) return true;
         }
     }
 
@@ -114,8 +114,11 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        // pool_->Write<lock_type>(lock, unlock_status);
-        pool_->AtomicSwap<lock_type>(lock, unlock_status);
+        if (lock == remote_nullptr || lock.address() == 0x01){
+            ROME_INFO("[!!] Never unlocking scenario");
+            return;
+        } 
+        pool_->Write<lock_type>(lock, unlock_status);
     }
 
     /// @brief Change the baseptr from a given bucket (could be remote as well) 
@@ -167,8 +170,6 @@ private:
     }
 public:
     MemoryPool* pool_;
-    volatile K result = 0; // value to modify upon completing an operation. Might as well grab the previous value if we are there.
-    // volatile to ensure thread safety 
 
     using conn_type = MemoryPool::conn_type;
 
@@ -228,7 +229,7 @@ public:
     /// @brief Gets a value at the key.
     /// @param key the key to search on
     /// @return if the key was found or not. The value at the key is stored in RdmaIHT::result
-    bool contains(K key){
+    IHT_Res contains(K key){
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         size_t depth = 1, count = PLIST_SIZE;
@@ -252,7 +253,7 @@ public:
                 // empty elist
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                return false;
+                return IHT_Res(false, 0);
             }
 
             // Get elist and linear search
@@ -261,11 +262,11 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
-                    result = e->pairs[i].val;
+                    K result = e->pairs[i].val;
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                    return true;
+                    return IHT_Res(true, result);
                 }
             }
 
@@ -273,7 +274,7 @@ public:
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-            return false;
+            return IHT_Res(false, 0);
         }
     }
     
@@ -281,7 +282,7 @@ public:
     /// @param key the key to insert
     /// @param value the value to associate with the key
     /// @return if the insert was successful
-    bool insert(K key, V value){
+    IHT_Res insert(K key, V value){
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
@@ -313,7 +314,7 @@ public:
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
                 // successful insert
-                return true;
+                return IHT_Res(true, 0);
             }
 
             // We have recursed to an non-empty elist
@@ -321,12 +322,12 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
-                    result = e->pairs[i].val;
+                    K result = e->pairs[i].val;
                     // Contains the key => unlock and return false
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                    return false;
+                    return IHT_Res(false, result);
                 }
             }
 
@@ -340,7 +341,7 @@ public:
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                return true;
+                return IHT_Res(true, 0);
             }
 
             // Ignore this branch for now since we haven't implemented rehash
@@ -361,7 +362,7 @@ public:
     /// @brief Will remove a value at the key. Will stored the previous value in result.
     /// @param key the key to remove at
     /// @return if the remove was successful
-    bool remove(K key){
+    IHT_Res remove(K key){
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
@@ -388,7 +389,7 @@ public:
                 // empty elist, can just unlock and return false
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                return false;
+                return IHT_Res(false, 0);
             }
 
             // Get elist and linear search
@@ -397,7 +398,7 @@ public:
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the value
                 if (e->pairs[i].key == key){
-                    result = e->pairs[i].val; // saving the previous value at key
+                    K result = e->pairs[i].val; // saving the previous value at key
                     if (e->count > 1){
                         // Edge swap if not count=0|1
                         e->pairs[i] = e->pairs[e->count - 1];
@@ -409,7 +410,7 @@ public:
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                    return true;
+                    return IHT_Res(true, result);
                 }
             }
 
@@ -417,7 +418,7 @@ public:
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-            return false;
+            return IHT_Res(false, 0);
         }
     }
 
@@ -425,8 +426,9 @@ public:
     /// @param count the number of values to insert. Recommended in total to do key_range / 2
     /// @param key_lb the lower bound for the key range
     /// @param key_ub the upper bound for the key range
-    /// @param value the value to associate with each key. Since we are benchmarking. This value doesn't matter!
-    void populate(int op_count, K key_lb, K key_ub, V value){
+    /// @param value the value to associate with each key. Currently, we have asserts for result to be equal to the key. Best to set value equal to key!
+    void populate(int op_count, K key_lb, K key_ub, std::function<K(V)> value){
+        return;
         // Populate only works when we have numerical keys
         K key_range = key_ub - key_lb;
 
@@ -436,7 +438,7 @@ public:
         std::default_random_engine gen((unsigned) std::time(NULL));
         for (int c = 0; c < op_count; c++){
             int k = dist(gen) * key_range + key_lb;
-            insert(k, value);
+            insert(k, value(k));
             // Wait some time before doing next insert...
             std::this_thread::sleep_for(std::chrono::nanoseconds(10));
         }
