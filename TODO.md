@@ -9,28 +9,21 @@ Goal: IHT Operations with rehashing
 
 Goal: Refining my IHT repo
 
-1. Populate function
-2. Conciser functions
-3. Alignment warnings in INIT
-4. Add more threads/nodes
+1. Add more threads/nodes (test to be sure this works)
+2. Alignment warnings in INIT
+3. Change name of client to `worker` and server to `manager`
+4. Conciser functions
 5. Reallocation should be 2n-1 and not 2n
-6. Fix deallocation issue with EList
+6. Fix deallocation issue with EList (leaks memory)
 
-TMRW:
-Make memory pool shared among threads
-Rework to start using loopback... (maybe start with just the lock for now? Just to fix safety in lock)
-Add metrics and export startegy
 
 Things to look into:
 
-* Rehashing the same key leads to a similar value. As a result, we are "stuck" using certain paths, causing much more collisions. Fixed by hashing by count-1. Avoid "Given mod A, find mod 2A issue". Update this to a better way later.
-* How does Allocate work? Can I provide parameters in it.
-* Can I setup a MemoryPool with self as a peer
-* How does compare & swap work?
-* Read makes a copy? Can I do pointer arithmetic?
-
-Q1: Memory Pool with self as a Peer
+* Rehashing the same key leads to a similar value. As a result, we are "stuck" using certain paths, causing much more collisions. Fixed by hashing by count-1. Avoid "Given mod A, find mod 2A issue". Update this to a better way method later.
 
 Issues:
 
-How do I deallocate the EList (upon rehashing) if the owner is not me? Maybe I need to implement a lazy solution?
+How do I deallocate the EList (upon rehashing) if the owner is not me? 
+
+* Maybe I need to implement a lazy solution? 
+* Better idea would be each node maintains a linkedlist or some data structure of elists to be freed. Each node can periodically iterate on it to make a free.
