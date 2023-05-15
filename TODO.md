@@ -10,7 +10,7 @@ Goal: IHT Operations with rehashing
 Goal: Refining my IHT repo
 
 1. Add more threads/nodes (test to be sure this works)
-2. Alignment warnings in INIT
+2. Add export statistics
 3. Change name of client to `worker` and server to `manager`
 4. Conciser functions
 5. Reallocation should be 2n-1 and not 2n

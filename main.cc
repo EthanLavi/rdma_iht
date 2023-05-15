@@ -32,7 +32,7 @@ using ::rome::rdma::MemoryPool;
 using ::rome::rdma::ConnectionManager;
 
 constexpr char iphost[] = "node0";
-constexpr uint16_t portNum = 18000;
+constexpr uint16_t portNum = 19000;
 
 using cm_type = MemoryPool::cm_type;
 
@@ -45,7 +45,7 @@ int main(int argc, char** argv){
     ExperimentParams params = ExperimentParams();
     std::string experiment_parms = absl::GetFlag(FLAGS_experiment_params);
     bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &params);
-    ROME_ASSERT(success, "Couldn't parse protobuf");    
+    ROME_ASSERT(success, "Couldn't parse protobuf");
     
     // Get hostname to determine who we are
     char hostname[4096];

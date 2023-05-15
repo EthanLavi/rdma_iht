@@ -30,7 +30,7 @@ python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root
 python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync --cmd="cd RDMA/rome/scripts/setup && python3 run.py --resources all && sudo apt install perftest -y"
 ```
 10. Wait while configuring. Can check /tmp/rome/logs for updates.
-11. [ONCE FINISHED] Login to nodes or continue to run C&C using launch.py
+11. [ONCE FINISHED] Login to nodes or continue to run commands using launch.py
 ```{bash}
 python launch.py --experiment_name={exp} --nodry_run --from_param_config=exp_conf.json --send_{bulk|test|exp}
 ```

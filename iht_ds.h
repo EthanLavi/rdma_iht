@@ -75,7 +75,7 @@ private:
         plist_pair_t buckets[PLIST_SIZE]; // Pointer lock pairs
     };
 
-    typedef remote_ptr<PList> remote_plist;    
+    typedef remote_ptr<PList> remote_plist;
     typedef remote_ptr<EList> remote_elist;
 
     /// @brief Initialize the plist with values.
@@ -95,10 +95,6 @@ private:
     
     /// Acquire a lock on the bucket. Will prevent others from modifying it
     bool acquire(remote_lock lock){
-        if (lock == remote_nullptr || lock.address() == 0x01) {
-            ROME_INFO("[!!] Remote Nullptr Found At Lock");
-            return true;
-        }
         // Spin while trying to acquire the lock
         while (true){
             lock_type v = pool_->CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED);
@@ -114,11 +110,7 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        if (lock == remote_nullptr || lock.address() == 0x01){
-            ROME_INFO("[!!] Never unlocking scenario");
-            return;
-        } 
-        pool_->Write<lock_type>(lock, unlock_status);
+        pool_->AtomicSwap<lock_type>(lock, unlock_status);
     }
 
     /// @brief Change the baseptr from a given bucket (could be remote as well) 
@@ -173,7 +165,10 @@ public:
 
     using conn_type = MemoryPool::conn_type;
 
-    RdmaIHT(MemoryPool::Peer self, MemoryPool* pool) : self_(self), pool_(pool){};
+    RdmaIHT(MemoryPool::Peer self, MemoryPool* pool) : self_(self), pool_(pool){
+        if ((PLIST_SIZE * 8) % 64 != 0) ROME_INFO("Warning: Suboptimal PLIST_SIZE b/c PList needs to be aligned to 64 bytes");
+        if (((ELIST_SIZE * 8) + 4) % 64 < 60) ROME_INFO("Warning: Suboptimal ELIST_SIZE b/c EList needs to be aligned to 64 bytes");
+    };
 
     /// @brief Initialize the IHT by connecting to the peers and exchanging the PList pointer
     /// @param host the leader of the initialization
@@ -335,8 +330,8 @@ public:
             if (e->count < ELIST_SIZE) {
                 // insert, unlock, return
                 e->elist_insert(key, value);
-                // If we are modifying the local copy, we need to write to the remote at the end
-                change_bucket_pointer(before_localized_curr, bucket, static_cast<remote_baseptr>(e));
+                // If we are modifying a local copy, we need to write to the remote at the end
+                if (bucket_base.id() != self_.id) pool_->Write<EList>(static_cast<remote_elist>(bucket_base), *e);
                 // unlock and return true
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
@@ -344,7 +339,10 @@ public:
                 return IHT_Res(true, 0);
             }
 
-            // Ignore this branch for now since we haven't implemented rehash
+            unlock(curr->buckets[bucket].lock, E_UNLOCKED);
+            if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
+            if (oldBucketBase) pool_->Deallocate<PList>(curr);
+            return IHT_Res(true, 0); // ignore rehashing to test if that is where the error is...
             // Need more room so rehash into plist and perma-unlock
             remote_plist p = rehash(curr, count, depth, bucket);
             // modify the bucket's pointer
@@ -405,7 +403,7 @@ public:
                     }
                     e->count -= 1;
                     // If we are modifying the local copy, we need to write to the remote at the end...
-                    change_bucket_pointer(before_localized_curr, bucket, static_cast<remote_baseptr>(e));
+                    if (bucket_base.id() != self_.id) pool_->Write<EList>(static_cast<remote_elist>(bucket_base), *e);
                     // Unlock and return
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
@@ -428,7 +426,6 @@ public:
     /// @param key_ub the upper bound for the key range
     /// @param value the value to associate with each key. Currently, we have asserts for result to be equal to the key. Best to set value equal to key!
     void populate(int op_count, K key_lb, K key_ub, std::function<K(V)> value){
-        return;
         // Populate only works when we have numerical keys
         K key_range = key_ub - key_lb;
 

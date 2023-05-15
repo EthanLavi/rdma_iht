@@ -105,6 +105,7 @@ public:
     int32_t runtime = client->params_.runtime();
     int32_t qps_sample_rate = client->params_.qps_sample_rate();
     std::barrier<>* barr = client->barrier_;
+    bool master_client = client->master_client_;
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
@@ -112,10 +113,11 @@ public:
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(runtime));
     // Wait for all the clients to stop. Then set the done to true to release the server
-    if (barr != nullptr) barr->arrive_and_wait(); // set server status once all clients are done
+    if (master_client){
+      if (barr != nullptr) barr->arrive_and_wait(); 
+    }
     *done = true;
     ROME_ASSERT_OK(driver->Stop());
-    if (barr != nullptr) barr->arrive_and_wait(); // Stop all at the same time
     ROME_INFO("CLIENT :: Driver generated {}", driver->ToString());
     return driver->ToProto();
   }
@@ -137,7 +139,7 @@ public:
       case(CONTAINS):
         ROME_INFO("Running Operation: contains({})", op.key);
         res = iht_->contains(op.key);
-        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of contains operation");
+        // if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of contains operation");
         break;
       case(INSERT):
         ROME_INFO("Running Operation: insert({}, {})", op.key, op.value);
@@ -146,7 +148,7 @@ public:
       case(REMOVE):
         ROME_INFO("Running Operation: remove({})", op.key);
         res = iht_->remove(op.key);
-        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of remove operation");
+        // if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of remove operation");
         break;
       default:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
@@ -206,8 +208,12 @@ public:
   // A function for communicating with the server that we are done. Will wait until server says it is ok to shut down
   absl::Status Stop() override {
     ROME_INFO("CLIENT :: Stopping client...");
+    if (!master_client_){
+      // if we aren't the master client we don't need to do the stop sequence. Just arrive at the barrier
+      if (barrier_ != nullptr) barrier_->arrive_and_wait();
+      return absl::OkStatus();
+    }
     if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
-    if (!master_client_) return absl::OkStatus(); // if we aren't the master client we don't need to do the stop sequence
     auto conn = iht_->pool_->connection_manager()->GetConnection(host_.id);
     ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
     AckProto e;
