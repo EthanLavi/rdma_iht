@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string>
+#include <fstream>
 #include <iostream>
 #include <ostream>
 #include <thread>
@@ -43,6 +44,7 @@ int main(int argc, char** argv){
     bool test_operations = absl::GetFlag(FLAGS_send_test);
     bool do_exp = absl::GetFlag(FLAGS_send_exp);
     ExperimentParams params = ExperimentParams();
+    ResultProto result_proto = ResultProto();
     std::string experiment_parms = absl::GetFlag(FLAGS_experiment_params);
     bool success = google::protobuf::TextFormat::MergeFromString(experiment_parms, &params);
     ROME_ASSERT(success, "Couldn't parse protobuf");
@@ -168,9 +170,20 @@ int main(int argc, char** argv){
         t->join();
     }
 
+    *result_proto.mutable_params() = params;
+
     for (int i = 0; i < params.thread_count(); i++){
+        IHTWorkloadDriverProto* r = result_proto.add_driver();
+        std::string output;
+        results[i].SerializeToString(&output);
+        r->MergeFromString(output);
         ROME_INFO("PROTO RESULTS FOR THREAD {}: {}", i, results[i].DebugString());
     }
+
+    std::ofstream filestream("iht_result.pbtxt");
+    filestream << result_proto.DebugString();
+    filestream.flush();
+    filestream.close();
 
     ROME_INFO("[EXPERIMENT] -- End of execution; -- ");
     return 0;

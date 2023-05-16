@@ -27,6 +27,7 @@ flags.DEFINE_string('nodefile', '../../rome/scripts/nodefiles/r320.csv', 'Path t
 flags.DEFINE_string('experiment_name', None, 'Used as local save directory', required=True)
 flags.DEFINE_string('bin_dir', 'RDMA/rdma_iht', 'Directory where we run bazel build from')
 flags.DEFINE_bool('dry_run', required=True, default=None, help='Print the commands instead of running them')
+flags.DEFINE_string('exp_result', 'iht_result.pbtxt', 'File to retrieve experiment result')
 
 # Program run-types
 flags.DEFINE_bool('send_bulk', required=False, default=False, help="Whether to run bulk operations (more for benchmarking)")
@@ -126,6 +127,7 @@ def main(args):
     # Create results directory
     os.makedirs(os.path.join("results", FLAGS.experiment_name), exist_ok=True)
     commands = []
+    commands_copy = []
     with open(FLAGS.nodefile, "r") as f:
         for node in csv.reader(f):
             # For every node in nodefile, get the node info
@@ -148,8 +150,16 @@ def main(args):
             payload += " --experiment_params=" + make_one_line(process_exp_flags())
             # Tuple: (Creating Command | Output File Name)
             commands.append((' '.join([ssh_login, quote(payload)]), nodename))
+            if FLAGS.send_exp:
+                bridge = 'bazel-out/k8-fastbuild/bin/main.runfiles/rdma_iht'
+                filepath = os.path.join(f"/users/{FLAGS.ssh_user}", FLAGS.bin_dir, bridge, FLAGS.exp_result)
+                local_dir = os.path.join("./results", FLAGS.experiment_name, nodename + "-" + FLAGS.exp_result)
+                copy = f"scp {ssh_login[4:]}:{filepath} {local_dir}"
+                commands_copy.append((copy, nodename + "-scp"))
     # Execute the commands and let us know we've finished
     execute(commands)
+    execute(commands_copy)
+
     print("Finished Experiment")
 
 
