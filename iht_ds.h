@@ -82,7 +82,7 @@ private:
     /// @param p the plist pointer to init
     /// @param depth the depth of p, needed for PLIST_SIZE == base_size * (2 ** (depth - 1))
     /// pow(2, depth)
-    void InitPList(remote_plist p, int mult_modder){
+    inline void InitPList(remote_plist p, int mult_modder){
         for (size_t i = 0; i < PLIST_SIZE * mult_modder; i++){
             p->buckets[i].lock = pool_->Allocate<lock_type>();
             *p->buckets[i].lock = E_UNLOCKED;
@@ -95,6 +95,9 @@ private:
     
     /// Acquire a lock on the bucket. Will prevent others from modifying it
     bool acquire(remote_lock lock){
+        if (lock.address() < 0x1000){
+            ROME_INFO("[!!] Invalid Lock Issue Regression");
+        }
         // Spin while trying to acquire the lock
         while (true){
             lock_type v = pool_->CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED);
@@ -110,7 +113,21 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        pool_->AtomicSwap<lock_type>(lock, unlock_status);
+        if (lock.address() < 0x1000){
+            ROME_INFO("[??] Invalid Lock Issue Regression");
+        }
+        pool_->AtomicSwap<lock_type>(lock, unlock_status); 
+        // TODO: Can this be changed back to Write? Or will this affect the ability of CompareAndSwap to function
+    }
+
+    template <typename T>
+    inline bool is_local(remote_ptr<T> ptr){
+        return ptr.id() == self_.id;
+    }
+
+    template <typename T>
+    inline bool is_null(remote_ptr<T> ptr){
+        return ptr == remote_nullptr;
     }
 
     /// @brief Change the baseptr from a given bucket (could be remote as well) 
@@ -121,7 +138,7 @@ private:
         uint64_t address_of_baseptr = before_localized_curr.address();
         address_of_baseptr += sizeof(plist_pair_t) * bucket;
         remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
-        if (magic_baseptr.id() != self_.id) pool_->Write<remote_baseptr>(magic_baseptr, baseptr);
+        if (!is_local(magic_baseptr)) pool_->Write<remote_baseptr>(magic_baseptr, baseptr);
         else *magic_baseptr = baseptr;
     }
 
@@ -145,11 +162,11 @@ private:
         InitPList(new_p, plist_size_factor);
 
         // hash everything from the full elist into it
-        remote_baseptr parent_bucket = parent->buckets[pidx].base;
-        remote_elist source = static_cast<remote_elist>(parent_bucket.id() == self_.id ? parent_bucket : pool_->Read<Base>(parent_bucket));
+        remote_elist parent_bucket = static_cast<remote_elist>(parent->buckets[pidx].base);
+        remote_elist source = is_local(parent_bucket) ? parent_bucket : pool_->Read<EList>(parent_bucket);
         for (size_t i = 0; i < source->count; i++){
             uint64_t b = level_hash(source->pairs[i].key, pdepth + 1, pcount);
-            if (new_p->buckets[b].base == remote_nullptr){
+            if (is_null(new_p->buckets[b].base)){
                 remote_elist e = pool_->Allocate<EList>();
                 new_p->buckets[b].base = static_cast<remote_baseptr>(e);
             }
@@ -215,7 +232,6 @@ public:
             remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
             this->root = iht_root;
         }
-        ROME_INFO("Init IHT finished {} --> {}", this->root, self_.address);
 
         return absl::OkStatus();
     }
@@ -232,11 +248,11 @@ public:
         while (true) {
             uint64_t bucket = level_hash(key, depth, count);
             remote_baseptr bucket_base = curr->buckets[bucket].base;
-            remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_->Read<Base>(bucket_base);
+            remote_baseptr base_ptr = is_local(bucket_base) || is_null(bucket_base) ? bucket_base : pool_->Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
                 // Can't lock then we are at a sub-plist
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                oldBucketBase = bucket_base.id() != self_.id; // setting the old bucket base
+                oldBucketBase = !is_local(bucket_base); // setting the old bucket base
                 curr = static_cast<remote_plist>(base_ptr);
                 depth++;
                 count *= 2; // TODO: Change back to 2 when we expand PList size
@@ -244,7 +260,7 @@ public:
             }
 
             // Past this point we have recursed to an elist
-            if (base_ptr == remote_nullptr){
+            if (is_null(base_ptr)){
                 // empty elist
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
@@ -259,7 +275,7 @@ public:
                 if (e->pairs[i].key == key){
                     K result = e->pairs[i].val;
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-                    if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
+                    if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
                     return IHT_Res(true, result);
                 }
@@ -267,7 +283,7 @@ public:
 
             // Can't find, unlock and return false
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-            if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
+            if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
             return IHT_Res(false, 0);
         }
@@ -285,35 +301,43 @@ public:
         bool oldBucketBase = true;
         while (true){
             uint64_t bucket = level_hash(key, depth, count);
-            remote_baseptr bucket_base = curr->buckets[bucket].base;
-            remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_->Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
                 // Can't lock then we are at a sub-plist
-                if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
-                oldBucketBase = bucket_base.id() != self_.id; // setting the old bucket base
-                before_localized_curr = static_cast<remote_plist>(bucket_base);
-                curr = static_cast<remote_plist>(base_ptr);
+                // Therefore we must re-fetch the PList to ensure freshness of our pointers
+                remote_plist curr_temp = pool_->ExtendedRead<PList>(before_localized_curr, 1 << (depth - 1));
+                remote_plist bucket_base = static_cast<remote_plist>(curr_temp->buckets[bucket].base);
+                remote_plist base_ptr = is_local(bucket_base) || is_null(bucket_base) ? bucket_base : pool_->ExtendedRead<PList>(bucket_base, 1 << depth);
+                pool_->Deallocate<PList>(curr_temp, 1 << (depth - 1));
+
+                if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
+                oldBucketBase = !is_local(bucket_base); // setting the old bucket base
+
+                before_localized_curr = bucket_base;
+                curr = base_ptr;
                 depth++;
                 count *= 2; // TODO: Change back to 2 when we expand PList size
                 continue;
             }
 
+            // We locked an elist, we can read the baseptr and progress
+            remote_elist bucket_base = static_cast<remote_elist>(curr->buckets[bucket].base);
+            remote_elist e = is_local(bucket_base) || is_null(bucket_base) ? bucket_base : pool_->Read<EList>(bucket_base);
+
             // Past this point we have recursed to an elist
-            if (base_ptr == remote_nullptr){
+            if (is_null(e)){
                 // empty elist
-                remote_elist e = pool_->Allocate<EList>();
-                e->elist_insert(key, value);
-                remote_baseptr e_base = static_cast<remote_baseptr>(e);
+                remote_elist e_new = pool_->Allocate<EList>();
+                e_new->elist_insert(key, value);
+                remote_baseptr e_base = static_cast<remote_baseptr>(e_new);
                 // modify the bucket's pointer
                 change_bucket_pointer(before_localized_curr, bucket, e_base);
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-                if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
+                if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
                 // successful insert
                 return IHT_Res(true, 0);
             }
 
             // We have recursed to an non-empty elist
-            remote_elist e = static_cast<remote_elist>(base_ptr);
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
@@ -321,7 +345,7 @@ public:
                     // Contains the key => unlock and return false
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
-                    if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
+                    if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
                     return IHT_Res(false, result);
                 }
             }
@@ -335,14 +359,10 @@ public:
                 // unlock and return true
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
-                if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
+                if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
                 return IHT_Res(true, 0);
             }
 
-            unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-            if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
-            if (oldBucketBase) pool_->Deallocate<PList>(curr);
-            return IHT_Res(true, 0); // ignore rehashing to test if that is where the error is...
             // Need more room so rehash into plist and perma-unlock
             remote_plist p = rehash(curr, count, depth, bucket);
             // modify the bucket's pointer
@@ -351,7 +371,7 @@ public:
             curr->buckets[bucket].base = static_cast<remote_baseptr>(p);
             // unlock bucket
             unlock(curr->buckets[bucket].lock, P_UNLOCKED);
-            if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
+            if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
             // repeat from top in a way to progress past the plist we just inserted, without deallocating it.
             oldBucketBase = false;
         }
@@ -369,7 +389,7 @@ public:
         while (true) {
             uint64_t bucket = level_hash(key, depth, count);
             remote_baseptr bucket_base = curr->buckets[bucket].base;
-            remote_baseptr base_ptr = bucket_base.id() == self_.id || bucket_base == remote_nullptr ? bucket_base : pool_->Read<Base>(bucket_base);
+            remote_baseptr base_ptr = is_local(bucket_base) || is_null(bucket_base) ? bucket_base : pool_->Read<Base>(bucket_base);
             if (!acquire(curr->buckets[bucket].lock)){
                 // Can't lock then we are at a sub-plist
                 // Might have to do another read here. For now its fine because we aren't rehashing
@@ -383,7 +403,7 @@ public:
             }
 
             // Past this point we have recursed to an elist
-            if (base_ptr == remote_nullptr){
+            if (is_null(base_ptr)){
                 // empty elist, can just unlock and return false
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
@@ -403,10 +423,10 @@ public:
                     }
                     e->count -= 1;
                     // If we are modifying the local copy, we need to write to the remote at the end...
-                    if (bucket_base.id() != self_.id) pool_->Write<EList>(static_cast<remote_elist>(bucket_base), *e);
+                    if (!is_local(bucket_base)) pool_->Write<EList>(static_cast<remote_elist>(bucket_base), *e);
                     // Unlock and return
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-                    if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
+                    if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
                     return IHT_Res(true, result);
                 }
@@ -414,7 +434,7 @@ public:
 
             // Can't find, unlock and return false
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
-            if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
+            if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr); // deallocate if curr was not ours
             return IHT_Res(false, 0);
         }
