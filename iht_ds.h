@@ -95,9 +95,6 @@ private:
     
     /// Acquire a lock on the bucket. Will prevent others from modifying it
     bool acquire(remote_lock lock){
-        if (lock.address() < 0x1000){
-            ROME_INFO("[!!] Invalid Lock Issue Regression");
-        }
         // Spin while trying to acquire the lock
         while (true){
             lock_type v = pool_->CompareAndSwap<lock_type>(lock, E_UNLOCKED, E_LOCKED);
@@ -113,9 +110,6 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        if (lock.address() < 0x1000){
-            ROME_INFO("[??] Invalid Lock Issue Regression");
-        }
         pool_->AtomicSwap<lock_type>(lock, unlock_status); 
         // TODO: Can this be changed back to Write? Or will this affect the ability of CompareAndSwap to function
     }
