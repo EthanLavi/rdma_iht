@@ -139,7 +139,7 @@ public:
       case(CONTAINS):
         ROME_INFO("Running Operation: contains({})", op.key);
         res = iht_->contains(op.key);
-        // if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of contains operation");
+        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) contains operation {}!={}", res.status, res.result, op.key);
         break;
       case(INSERT):
         ROME_INFO("Running Operation: insert({}, {})", op.key, op.value);
@@ -148,7 +148,7 @@ public:
       case(REMOVE):
         ROME_INFO("Running Operation: remove({})", op.key);
         res = iht_->remove(op.key);
-        // if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of remove operation");
+        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) remove operation {}!={}", res.status, res.result, op.key);
         break;
       default:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
