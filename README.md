@@ -38,11 +38,11 @@ python launch.py --experiment_name={exp} --nodry_run --from_param_config=exp_con
 ### Running in GDB
 
 ```
-bazel build main --compilation_mode=dbg --log_level=info
+cd RDMA/rdma_iht
 ```
 
 ```
-gdb bazel-bin/main
+bazel build main --compilation_mode=dbg --log_level=info && gdb bazel-bin/main
 ```
 
 ```
