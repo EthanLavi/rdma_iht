@@ -14,7 +14,10 @@ Goal: Refining my IHT repo
 3. Change name of client to `worker` and server to `manager`
 4. Conciser functions
 5. Reallocation should be 2n-1 and not 2n
-6. Fix deallocation issue with EList (leaks memory)
+6. Improve speed of pointer refreshing. The error I've discovered is if a node is waiting for a EList to unlock. But while this is happening another node changes the EList to a PList, the original node will interpret its stale copy of the Base pointer as a PList, when in reality it is pointing to the old EList.
+7. In addition READ must become ExtendedRead to deal with varying size of PList. Ask Professor about a cleaner solution than using depth.
+8. Fix deallocation issue with EList (leaks memory)
+9. Double check mempool safety after fixing data structure
 
 
 Things to look into:
