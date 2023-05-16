@@ -18,8 +18,6 @@ using ::rome::rdma::remote_nullptr;
 using ::rome::rdma::remote_ptr;
 using ::rome::rdma::RemoteObjectProto;
 
-// TODO: Make allocation of PList be dynamic and not static size
-
 template<class K, class V, int ELIST_SIZE, int PLIST_SIZE>
 class RdmaIHT {
 private:
@@ -110,8 +108,7 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        pool_->AtomicSwap<lock_type>(lock, unlock_status); 
-        // TODO: Can this be changed back to Write? Or will this affect the ability of CompareAndSwap to function
+        pool_->Write<lock_type>(lock, unlock_status); 
     }
 
     template <typename T>
@@ -147,7 +144,6 @@ private:
     /// @param pdepth The depth of `parent`
     /// @param pidx   The index in `parent` of the bucket to rehash
     remote_plist rehash(remote_plist parent, size_t pcount, size_t pdepth, size_t pidx){
-        // TODO: the plist size should double in size
         pcount = pcount * 2;
         int plist_size_factor = (pcount / PLIST_SIZE); // pow(2, pdepth); // how much bigger than original size we are 
         
@@ -256,7 +252,7 @@ public:
                 before_localized_curr = bucket_base;
                 curr = base_ptr;
                 depth++;
-                count *= 2; // TODO: Change back to 2 when we expand PList size
+                count *= 2;
                 continue;
             }
 
@@ -319,7 +315,7 @@ public:
                 before_localized_curr = bucket_base;
                 curr = base_ptr;
                 depth++;
-                count *= 2; // TODO: Change back to 2 when we expand PList size
+                count *= 2;
                 continue;
             }
 
@@ -406,7 +402,7 @@ public:
                 before_localized_curr = bucket_base;
                 curr = base_ptr;
                 depth++;
-                count *= 2; // TODO: Change back to 2 when we expand PList size
+                count *= 2;
                 continue;
             }
 
