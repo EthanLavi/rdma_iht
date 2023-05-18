@@ -33,7 +33,7 @@ using ::rome::rdma::MemoryPool;
 using ::rome::rdma::ConnectionManager;
 
 constexpr char iphost[] = "node0";
-constexpr uint16_t portNum = 19000;
+constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
 
@@ -177,8 +177,9 @@ int main(int argc, char** argv){
         std::string output;
         results[i].SerializeToString(&output);
         r->MergeFromString(output);
-        ROME_INFO("PROTO RESULTS FOR THREAD {}: {}", i, results[i].DebugString());
     }
+    
+    ROME_INFO("Compiled Proto Results ### {}", result_proto.DebugString());
 
     std::ofstream filestream("iht_result.pbtxt");
     filestream << result_proto.DebugString();

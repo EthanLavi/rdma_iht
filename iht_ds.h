@@ -108,7 +108,10 @@ private:
     /// @param lock the lock to unlock
     /// @param unlock_status what should the end lock status be.
     inline void unlock(remote_lock lock, uint64_t unlock_status){
-        pool_->Write<lock_type>(lock, unlock_status); 
+        remote_lock temp = pool_->Allocate<lock_type>();
+        pool_->Write<lock_type>(lock, unlock_status, temp); 
+        // Have to deallocate "8" of them to account for alignment
+        pool_->Deallocate<lock_type>(temp, 8);
     }
 
     template <typename T>
@@ -129,7 +132,12 @@ private:
         uint64_t address_of_baseptr = before_localized_curr.address();
         address_of_baseptr += sizeof(plist_pair_t) * bucket;
         remote_ptr<remote_baseptr> magic_baseptr = remote_ptr<remote_baseptr>(before_localized_curr.id(), address_of_baseptr);
-        if (!is_local(magic_baseptr)) pool_->Write<remote_baseptr>(magic_baseptr, baseptr);
+        if (!is_local(magic_baseptr)){ 
+            // Have to use a temp variable to account for alignment. Remote pointer is 8 bytes!
+            auto temp = pool_->Allocate<remote_baseptr>();
+            pool_->Write<remote_baseptr>(magic_baseptr, baseptr, temp); 
+            pool_->Deallocate<remote_baseptr>(temp, 8);
+        }
         else *magic_baseptr = baseptr;
     }
 
@@ -269,7 +277,6 @@ public:
             }
 
             // Get elist and linear search
-            // Need to do a conditional read here because base_ptr might be ours. Basically we read the EList locally
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the key
                 if (e->pairs[i].key == key){
@@ -419,7 +426,6 @@ public:
             }
 
             // Get elist and linear search
-            // Need to do a conditional read here because base_ptr might be ours. Basically we read the EList locally
             for (size_t i = 0; i < e->count; i++){
                 // Linear search to determine if elist already contains the value
                 if (e->pairs[i].key == key){
