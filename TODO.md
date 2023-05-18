@@ -17,6 +17,11 @@ Goal: Refining my IHT repo
 6. Fix deallocation issue with EList (leaks memory)
 7. Double check mempool safety after fixing data structure (don't remeber what I was thinking when I wrote this. Maybe think about thread safety? and improving speed?)
 8. Conciser functions
+9. Fix unlimited stream
+
+Ideas:
+
+Make ELIST the same size as next PLIST size. This solves the deallocation issue and removes the need for pointer switching.
 
 Issues:
 
