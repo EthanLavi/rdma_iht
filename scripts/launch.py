@@ -66,11 +66,11 @@ def is_valid(string):
             return False
     return True
 
-def execute(commands):
+def execute(commands, file_perm):
     """For each command in commands, start a process"""
     # Create a function that will create a file and run the given command using that file as stout
     def __run__(cmd, outfile):
-        with open(f"{outfile}.txt", "w+") as f:
+        with open(f"{outfile}.txt", file_perm) as f:
             if FLAGS.dry_run:
                 print(cmd)
             else:
@@ -126,6 +126,8 @@ def main(args):
     print("Starting Experiment")
     # Create results directory
     os.makedirs(os.path.join("results", FLAGS.experiment_name), exist_ok=True)
+    os.makedirs(os.path.join("results", FLAGS.experiment_name + "-stats"), exist_ok=True)
+    
     commands = []
     commands_copy = []
     with open(FLAGS.nodefile, "r") as f:
@@ -153,12 +155,12 @@ def main(args):
             if FLAGS.send_exp:
                 bridge = 'bazel-out/k8-fastbuild/bin/main.runfiles/rdma_iht'
                 filepath = os.path.join(f"/users/{FLAGS.ssh_user}", FLAGS.bin_dir, bridge, FLAGS.exp_result)
-                local_dir = os.path.join("./results", FLAGS.experiment_name, nodename + "-" + FLAGS.exp_result)
+                local_dir = os.path.join("./results", FLAGS.experiment_name + "-stats", nodename + "-" + FLAGS.exp_result)
                 copy = f"scp {ssh_login[4:]}:{filepath} {local_dir}"
-                commands_copy.append((copy, nodename + "-scp"))
+                commands_copy.append((copy, nodename))
     # Execute the commands and let us know we've finished
-    execute(commands)
-    execute(commands_copy)
+    execute(commands, "w+")
+    execute(commands_copy, "a")
 
     print("Finished Experiment")
 
