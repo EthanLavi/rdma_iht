@@ -76,12 +76,15 @@ public:
     // - within the specified ratios for operations
     std::uniform_real_distribution<double> dist = std::uniform_real_distribution<double>(0.0, 1.0);
     std::default_random_engine gen((unsigned) std::time(NULL));
+    int lb = client->params_.key_lb();
+    int contains = client->params_.contains();
+    int insert = client->params_.insert();
     std::function<Operation(void)> generator = [&](){
       double rng = dist(gen) * 100;
-      int k = dist(gen) * key_range + client->params_.key_lb();
-      if (rng < client->params_.contains()){ // between 0 and CONTAINS
+      int k = dist(gen) * key_range + lb;
+      if (rng < contains){ // between 0 and CONTAINS
         return Operation(CONTAINS, k, 0);
-      } else if (rng < client->params_.contains() + client->params_.insert()){ // between CONTAINS and CONTAINS + INSERT
+      } else if (rng < contains + insert){ // between CONTAINS and CONTAINS + INSERT
         return Operation(INSERT, k, k);
       } else {
         return Operation(REMOVE, k, 0);
@@ -137,16 +140,19 @@ public:
     IHT_Res res = IHT_Res(false, 0);
     switch (op.op_type){
       case(CONTAINS):
-        ROME_INFO("Running Operation: contains({})", op.key);
+        if (count % progression == 0) ROME_INFO("Running Operation {}: contains({})", count, op.key);
+        // ROME_INFO("Running Operation {}: contains({})", count, op.key);
         res = iht_->contains(op.key);
         if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) contains operation {}!={}", res.status, res.result, op.key);
         break;
       case(INSERT):
-        ROME_INFO("Running Operation: insert({}, {})", op.key, op.value);
+        if (count % progression == 0) ROME_INFO("Running Operation {}: insert({}, {})", count, op.key, op.value);
+        // ROME_INFO("Running Operation {}: insert({}, {})", count, op.key, op.value);
         res = iht_->insert(op.key, op.value);
         break;
       case(REMOVE):
-        ROME_INFO("Running Operation: remove({})", op.key);
+        if (count % progression == 0) ROME_INFO("Running Operation {}: remove({})", count, op.key);
+        // ROME_INFO("Running Operation {}: remove({})", count, op.key);
         res = iht_->remove(op.key);
         if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) remove operation {}!={}", res.status, res.result, op.key);
         break;
@@ -235,7 +241,10 @@ public:
 
 private:
   Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier, IHT* iht, bool master_client)
-      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier), iht_(iht), master_client_(master_client) {}
+      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier), iht_(iht), master_client_(master_client) {
+        if (params.unlimited_stream()) progression = 10000;
+        else progression = params_.op_count() * 0.001;
+      }
 
   int count = 0;
 
@@ -246,4 +255,6 @@ private:
   std::barrier<> *barrier_;
   IHT* iht_;
   bool master_client_;
+
+  int progression;
 };
