@@ -42,7 +42,7 @@ flags.DEFINE_integer('qps_sample_rate', required=False, default=10, help="The QP
 flags.DEFINE_integer('max_qps_second', required=False, default=-1, help="The max qps per second. Leaving -1 will be infinite")
 flags.DEFINE_integer('runtime', required=False, default=10, help="How long to run the experiment before cutting off")
 flags.DEFINE_bool('unlimited_stream', required=False, default=False, help="If to run the stream for an infinite amount or just until the operations run out")
-flags.DEFINE_string('op_distribution', required=False, default="80|10|10", help="The distribution of operations as contains|insert|remove. Must add up to 100")
+flags.DEFINE_string('op_distribution', required=False, default="80-10-10", help="The distribution of operations as contains-insert-remove. Must add up to 100")
 flags.DEFINE_integer('op_count', required=False, default=10000, help="The number of operations to run if unlimited stream is passed as False.")
 flags.DEFINE_list('key_range', required=False, default=['0', '1e6'], help="Pass in two values to be the [lb,ub] of the key range. Can use e-notation as well.")
 flags.DEFINE_integer('region_size', required=False, default=22, help="2 ^ x bytes to allocate on each node")
@@ -106,7 +106,7 @@ def process_exp_flags():
         one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "region_size", "thread_count", "node_count"]
         for param in one_to_ones:
             exec(f"params.{param} = FLAGS.{param}")
-        contains, insert, remove = FLAGS.op_distribution.split("|")
+        contains, insert, remove = FLAGS.op_distribution.split("-")
         if int(contains) + int(insert) + int(remove) != 100:
             print("Must specify values that add to 100 in op_distribution")
             exit(1)

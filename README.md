@@ -27,7 +27,7 @@ python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root
 8. Check logs at /tmp/rome/logs for success
 9. Run start up script
 ```{bash}
-python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync --cmd="cd RDMA/rome/scripts/setup && python3 run.py --resources all && sudo apt install perftest -y"
+python rexec.py --nodefile=nodefiles/r320.csv --remote_user=esl225 --remote_root=/users/esl225/RDMA --local_root=/home/manager/Research/RDMA --sync --cmd="cd RDMA/rome/scripts/setup && python3 run.py --resources all"
 ```
 10. Wait while configuring. Can check /tmp/rome/logs for updates.
 11. [ONCE FINISHED] Login to nodes or continue to run commands using launch.py
