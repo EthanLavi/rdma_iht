@@ -49,8 +49,11 @@ for n in nodes:
         x.append(one_tick)
         mean_total = 0
         for node_file, node_data in proto[n][t].items():
+            count = 0
             for it in node_data.driver:
+                count += 1
                 mean_total += it.qps.summary.mean
+            assert(count == t)
         assert(len(proto[n][t]) == n)
         y.append(mean_total)
 
