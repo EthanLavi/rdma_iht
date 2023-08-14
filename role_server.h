@@ -1,6 +1,8 @@
 #include <algorithm>
 
-#include "iht_ds.h"
+#include "structures/iht_ds.h"
+#include "structures/hashtable.h"
+
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "rome/rdma/connection_manager/connection_manager.h"
@@ -10,7 +12,8 @@
 
 using ::rome::rdma::MemoryPool;
 
-typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
+// typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
+typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
 
 class Server {
 public:
@@ -25,18 +28,27 @@ public:
   /// @param done a bool for inter-thread communication
   /// @param runtime_s how long to wait before listening for finishing messages
   /// @return the status
-  absl::Status Launch(volatile bool* done, int runtime_s) {
+  absl::Status Launch(volatile bool* done, int runtime_s, std::function<void()> cleanup) {
     // Sleep while clients are running if there is a set runtime.
     if (runtime_s > 0) {
       ROME_INFO("SERVER :: Sleeping for {}", runtime_s);
-      // We sleep for an extra 2 seconds to let the client populate the data structure
-      std::this_thread::sleep_for(std::chrono::seconds(runtime_s));
+
+      for(int it = 0; it < runtime_s; it++){
+        // We sleep for 1 second, runtime times, and do intermitten cleanup
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        // Check for server related cleanup
+        cleanup();
+      }
     }
 
     // Sync with the clients
     while(!(*done)){
-      // Sleep for a half second while not done
+      // Sleep for a second while not done
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+      // Check for server related cleanup
+      cleanup();
     }
 
     // Wait for all clients to be done.

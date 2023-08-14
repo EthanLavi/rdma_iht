@@ -118,7 +118,9 @@ int main(int argc, char** argv){
             // We are the server
             std::unique_ptr<Server> server = Server::Create(host, peers, params, &pool);
             ROME_INFO("Server Created");
-            absl::Status run_status = server->Launch(&done, params.runtime());  
+            absl::Status run_status = server->Launch(&done, params.runtime(), [&iht](){
+                // iht.try_rehash();
+            });
             ROME_ASSERT_OK(run_status);
             ROME_INFO("[SERVER THREAD] -- End of execution; -- ");
         }));

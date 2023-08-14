@@ -14,9 +14,9 @@ cc_proto_library(
 )
 
 cc_library(
-    name = "iht_ds",
-    srcs = ["iht_ds.cpp"],
-    hdrs = ["iht_ds.h", "role_server.h", "role_client.h", "common.h"],
+    name = "ds",
+    srcs = ["structures/types.cpp"],
+    hdrs = ["structures/iht_ds.h", "structures/hashtable.h", "structures/linked_set.h", "role_server.h", "role_client.h", "common.h"],
     copts = ["-std=c++2a"],
     deps = [
         ":experiment_cc_proto",
@@ -44,6 +44,6 @@ cc_binary(
     copts = ["-std=c++2a"],
     deps = [
         ":experiment_cc_proto",
-        ":iht_ds"
+        ":ds"
     ],
 )

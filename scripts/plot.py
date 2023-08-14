@@ -25,6 +25,15 @@ x_label = eval(config.get('desc', 'x_label'))
 # Get the protos into a list
 proto = {}
 for suffix in suffix_s:
+    exp_node_c = 0
+    exp_thread_c = 0
+    for file in os.listdir(os.path.join(prefix, suffix)):
+        if file.__contains__("node0") and file.__contains__("pbtxt"):
+            f = open(os.path.join(prefix, suffix, file), "rb")
+            p = text_format.Parse(f.read(), protos.ResultProto())
+            exp_node_c =  p.params.node_count
+            exp_thread_c =  p.params.thread_count
+            f.close()
     for file in os.listdir(os.path.join(prefix, suffix)):
         if not file.__contains__("pbtxt"):
             continue
@@ -36,6 +45,8 @@ for suffix in suffix_s:
             proto[node_c] = {}
         if thread_c not in proto[node_c]:
             proto[node_c][thread_c] = {}
+        if node_c > exp_node_c and thread_c > exp_thread_c:
+            continue
         proto[node_c][thread_c][file] = p
         f.close()
 
@@ -57,6 +68,7 @@ for n in nodes:
         assert(len(proto[n][t]) == n)
         y.append(mean_total)
 
+# Draw the graph
 fig = plt.figure(figsize=(8, 8))
 plt.suptitle(title)
 plt.title(subtitle)

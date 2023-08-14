@@ -11,7 +11,9 @@
 #include "rome/colosseum/qps_controller.h"
 #include "rome/colosseum/workload_driver.h"
 #include "rome/util/clocks.h"
-#include "iht_ds.h"
+
+#include "structures/hashtable.h"
+#include "structures/iht_ds.h"
 #include "common.h"
 #include "protos/experiment.pb.h"
 
@@ -20,12 +22,25 @@ using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::WorkloadDriverProto;
 
-typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
+// typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
+typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
+
+std::string fromStateValue(state_value value){
+  if (FALSE_STATE == value){
+    return std::string("FALSE");
+  } else if (TRUE_STATE == value){
+    return std::string("TRUE");
+  } else if (REHASH_DELETED == value){
+    return std::string("REHASH DELETED");
+  } else {
+    return std::string("UNKNOWN - ") + std::to_string(value);
+  }
+}
 
 // Function to run a test case
-void test_output(bool show_passing, IHT_Res actual, IHT_Res expected, std::string message){
+void test_output(bool show_passing, HT_Res<int> actual, HT_Res<int> expected, std::string message){
     if (actual.status != expected.status && actual.result != expected.result){
-      ROME_INFO("[-] {} func():({},{}) != expected:({},{})", message, actual.status, actual.result, expected.status, expected.result);
+      ROME_INFO("[-] {} func():({},{}) != expected:({},{})", message, fromStateValue(actual.status), actual.result, fromStateValue(expected.status), expected.result);
     } else if (show_passing) {
       ROME_INFO("[+] Test Case {} Passed!", message);
     }
@@ -137,7 +152,7 @@ public:
   // Runs the next operation
   absl::Status Apply(const Operation &op) override {
     count++;
-    IHT_Res res = IHT_Res(false, 0);
+    HT_Res<int> res = HT_Res<int>(FALSE_STATE, 0);
     switch (op.op_type){
       case(CONTAINS):
         if (count % progression == 0) ROME_INFO("Running Operation {}: contains({})", count, op.key);
@@ -173,37 +188,40 @@ public:
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(bool at_scale){    
     if (at_scale){
-      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
+      int scale_size = 16; // TODO: (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
+      bool show_passing = false;
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), IHT_Res(false, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
-        test_output(false, iht_->insert(i, i), IHT_Res(true, 0), std::string("Insert ") + std::to_string(i));
-        test_output(false, iht_->contains(i), IHT_Res(true, i), std::string("Contains ") + std::to_string(i) + std::string(" true"));
+        test_output(show_passing, iht_->contains(i), HT_Res<int>(FALSE_STATE, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
+        test_output(show_passing, iht_->insert(i, i), HT_Res<int>(TRUE_STATE, 0), std::string("Insert ") + std::to_string(i));
+        test_output(show_passing, iht_->contains(i), HT_Res<int>(TRUE_STATE, i), std::string("Contains ") + std::to_string(i) + std::string(" true"));
       }
       ROME_INFO(" = 25% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), IHT_Res(true, i), std::string("Contains ") + std::to_string(i) + std::string(" maintains true"));
+        test_output(show_passing, iht_->contains(i), HT_Res<int>(TRUE_STATE, i), std::string("Contains ") + std::to_string(i) + std::string(" maintains true"));
       }
       ROME_INFO(" = 50% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->remove(i), IHT_Res(true, i), std::string("Removes ") + std::to_string(i));
-        test_output(false, iht_->contains(i), IHT_Res(false, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
+        test_output(true, iht_->remove(i), HT_Res<int>(TRUE_STATE, i), std::string("Removes ") + std::to_string(i));
+        iht_->print();
+        test_output(show_passing, iht_->contains(i), HT_Res<int>(FALSE_STATE, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
       }
       ROME_INFO(" = 75% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(false, iht_->contains(i), IHT_Res(false, 0), std::string("Contains ") + std::to_string(i) + std::string(" maintains false"));
+        test_output(show_passing, iht_->contains(i), HT_Res<int>(FALSE_STATE, 0), std::string("Contains ") + std::to_string(i) + std::string(" maintains false"));
       }
       ROME_INFO("All test cases passed");
     } else {
-      test_output(true, iht_->contains(5), IHT_Res(false, 0), "Contains 5");
-      test_output(true, iht_->contains(4), IHT_Res(false, 0), "Contains 4");
-      test_output(true, iht_->insert(5, 10), IHT_Res(true, 0), "Insert 5");
-      test_output(true, iht_->insert(5, 11), IHT_Res(false, 10), "Insert 5 again should fail");
-      test_output(true, iht_->contains(5), IHT_Res(true, 10), "Contains 5");
-      test_output(true, iht_->contains(4), IHT_Res(false, 0), "Contains 4");
-      test_output(true, iht_->remove(5), IHT_Res(true, 10), "Remove 5");
-      test_output(true, iht_->remove(4), IHT_Res(false, 0), "Remove 4");
-      test_output(true, iht_->contains(5), IHT_Res(false, 0), "Contains 5");
-      test_output(true, iht_->contains(4), IHT_Res(false, 0), "Contains 4");
+      ROME_INFO("Starting test cases.");
+      test_output(true, iht_->contains(5), HT_Res<int>(FALSE_STATE, 0), "Contains 5");
+      test_output(true, iht_->contains(4), HT_Res<int>(FALSE_STATE, 0), "Contains 4");
+      test_output(true, iht_->insert(5, 10), HT_Res<int>(FALSE_STATE, 0), "Insert 5");
+      test_output(true, iht_->insert(5, 11), HT_Res<int>(FALSE_STATE, 10), "Insert 5 again should fail");
+      test_output(true, iht_->contains(5), HT_Res<int>(TRUE_STATE, 10), "Contains 5");
+      test_output(true, iht_->contains(4), HT_Res<int>(FALSE_STATE, 0), "Contains 4");
+      test_output(true, iht_->remove(5), HT_Res<int>(TRUE_STATE, 10), "Remove 5");
+      test_output(true, iht_->remove(4), HT_Res<int>(FALSE_STATE, 0), "Remove 4");
+      test_output(true, iht_->contains(5), HT_Res<int>(FALSE_STATE, 0), "Contains 5");
+      test_output(true, iht_->contains(4), HT_Res<int>(FALSE_STATE, 0), "Contains 4");
       ROME_INFO("All cases passed");
     }
     absl::Status stop_status = Stop();

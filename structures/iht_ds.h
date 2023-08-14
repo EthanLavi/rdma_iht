@@ -238,7 +238,7 @@ public:
     /// @brief Gets a value at the key.
     /// @param key the key to search on
     /// @return if the key was found or not. The value at the key is stored in RdmaIHT::result
-    IHT_Res contains(K key){
+    HT_Res<V> contains(K key){
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
@@ -273,7 +273,7 @@ public:
                 // empty elist
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-                return IHT_Res(false, 0);
+                return HT_Res<V>(FALSE_STATE, 0);
             }
 
             // Get elist and linear search
@@ -284,7 +284,7 @@ public:
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-                    return IHT_Res(true, result);
+                    return HT_Res<V>(TRUE_STATE, result);
                 }
             }
 
@@ -292,7 +292,7 @@ public:
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-            return IHT_Res(false, 0);
+            return HT_Res<V>(FALSE_STATE, 0);
         }
     }
     
@@ -300,7 +300,7 @@ public:
     /// @param key the key to insert
     /// @param value the value to associate with the key
     /// @return if the insert was successful
-    IHT_Res insert(K key, V value){
+    HT_Res<V> insert(K key, V value){
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
@@ -341,7 +341,7 @@ public:
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
                 // successful insert
-                return IHT_Res(true, 0);
+                return HT_Res<V>(TRUE_STATE, 0);
             }
 
             // We have recursed to an non-empty elist
@@ -353,7 +353,7 @@ public:
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-                    return IHT_Res(false, result);
+                    return HT_Res<V>(FALSE_STATE, result);
                 }
             }
 
@@ -367,7 +367,7 @@ public:
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (bucket_base.id() != self_.id) pool_->Deallocate<EList>(e);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-                return IHT_Res(true, 0);
+                return HT_Res<V>(TRUE_STATE, 0);
             }
 
             // Need more room so rehash into plist and perma-unlock
@@ -387,7 +387,7 @@ public:
     /// @brief Will remove a value at the key. Will stored the previous value in result.
     /// @param key the key to remove at
     /// @return if the remove was successful
-    IHT_Res remove(K key){
+    HT_Res<V> remove(K key){
         // start at root
         remote_plist curr = pool_->Read<PList>(root);
         remote_plist before_localized_curr = root;
@@ -422,7 +422,7 @@ public:
                 // empty elist, can just unlock and return false
                 unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                 if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-                return IHT_Res(false, 0);
+                return HT_Res<V>(FALSE_STATE, 0);
             }
 
             // Get elist and linear search
@@ -441,7 +441,7 @@ public:
                     unlock(curr->buckets[bucket].lock, E_UNLOCKED);
                     if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
                     if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-                    return IHT_Res(true, result);
+                    return HT_Res<V>(TRUE_STATE, result);
                 }
             }
 
@@ -449,8 +449,13 @@ public:
             unlock(curr->buckets[bucket].lock, E_UNLOCKED);
             if (!is_local(bucket_base)) pool_->Deallocate<EList>(e);
             if (oldBucketBase) pool_->Deallocate<PList>(curr, 1 << (depth - 1)); // deallocate if curr was not ours
-            return IHT_Res(false, 0);
+            return HT_Res<V>(FALSE_STATE, 0);
         }
+    }
+
+    /// Function signature added to match map interface. No intermediary cleanup necessary so unusued
+    void try_rehash(){
+        // Unused function b/c no cleanup necessary
     }
 
     /// @brief Populate only works when we have numerical keys. Will add data
