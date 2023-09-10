@@ -2,6 +2,7 @@
 
 #include "structures/iht_ds.h"
 #include "structures/hashtable.h"
+#include "structures/test_map.h"
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -13,7 +14,8 @@
 using ::rome::rdma::MemoryPool;
 
 // typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
-typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
+// typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
+typedef TestMap<int, int> IHT;
 
 class Server {
 public:
@@ -33,9 +35,9 @@ public:
     if (runtime_s > 0) {
       ROME_INFO("SERVER :: Sleeping for {}", runtime_s);
 
-      for(int it = 0; it < runtime_s; it++){
+      for(int it = 0; it < runtime_s * 10; it++){
         // We sleep for 1 second, runtime times, and do intermitten cleanup
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // Check for server related cleanup
         cleanup();
@@ -44,8 +46,8 @@ public:
 
     // Sync with the clients
     while(!(*done)){
-      // Sleep for a second while not done
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      // Sleep for 1/10 second while not done
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
       // Check for server related cleanup
       cleanup();

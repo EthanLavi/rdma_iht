@@ -73,7 +73,7 @@ int main(int argc, char** argv){
     }
 
     // Make the peer list by iterating through the node count
-    for(int n = 1; n < params.node_count(); n++){
+    for(int n = 1; n < params.node_count() && do_exp; n++){
         // Create the ip_peer (really just node name)
         std::string ippeer = "node";
         std::string node_id = std::to_string(n);
@@ -119,17 +119,11 @@ int main(int argc, char** argv){
             std::unique_ptr<Server> server = Server::Create(host, peers, params, &pool);
             ROME_INFO("Server Created");
             absl::Status run_status = server->Launch(&done, params.runtime(), [&iht](){
-                // iht.try_rehash();
+                iht.try_rehash();
             });
             ROME_ASSERT_OK(run_status);
             ROME_INFO("[SERVER THREAD] -- End of execution; -- ");
         }));
-        if (!do_exp){
-            done = true;
-            // Just do server when we are running testing operations
-            threads[0].join();
-            exit(0);
-        }
     }
 
     if (!do_exp){
@@ -142,6 +136,9 @@ int main(int argc, char** argv){
             absl::Status status = client->Operations(false);
             ROME_ASSERT_OK(status);
         }
+        // Wait for server to complete
+        done = true;
+        threads[0].join();
         ROME_INFO("[TEST] -- End of execution; -- ");
         exit(0);
     }

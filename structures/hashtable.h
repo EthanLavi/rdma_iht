@@ -241,12 +241,11 @@ public:
                 int ll_length = set.list_length(pool_);
                 total_elements += ll_length;
             }
-            
-            ROME_INFO("{} hashtable.count", hashtable.count);
-            ROME_INFO("{} elements", total_elements);
 
             // Check if total elements exceeds load factor
-            if (total_elements < hashtable.count){
+            if (total_elements < hashtable.count * 10){
+                pool_->Deallocate<HashArray>(ds);
+                pool_->Deallocate<LinkedKV>(buckets, hashtable.count);
                 return;
             }
 

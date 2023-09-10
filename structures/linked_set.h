@@ -7,7 +7,7 @@ using ::rome::rdma::MemoryPool;
 using ::rome::rdma::remote_nullptr;
 using ::rome::rdma::remote_ptr;
 
-#define NODE_BUNDLE_SIZE 2
+#define NODE_BUNDLE_SIZE 7
 
 template<class K, class V>
 class alignas(64) LinkedSet {
@@ -55,6 +55,15 @@ private:
         pool->Write<lock_type>(lock, UNLOCKED, temp); 
         // Have to deallocate "8" of them to account for alignment (this is why we prealloc the data)
         pool->Deallocate<lock_type>(temp, 8);
+    }
+
+    /// Edit the total count of the linkedlist to be either 1 greater or 1 less
+    void changeCount(MemoryPool* pool, bool isIncrement){
+        remote_node node = pool->Read<Node>(first);
+        Node node_pulled = *std::to_address(node);
+        node_pulled.total_length += isIncrement ? 1 : -1;
+        pool->Write<Node>(first, node_pulled);
+        pool->Deallocate<Node>(node);
     }
 
 public:
@@ -109,7 +118,8 @@ public:
             Node node_data = *std::to_address(red_node);
 
             // Iterate through bundles
-            ROME_INFO("{}/{} ->", node_data.length, NODE_BUNDLE_SIZE);
+            // (can turn on when printing to get a better idea of separation) 
+            // ROME_INFO("{}/{} agg={} ->", node_data.length, NODE_BUNDLE_SIZE, node_data.total_length);
             for(int i = 0; i < node_data.length; i++){
                 func(node_data.key[i], node_data.value[i]);
             }
@@ -167,7 +177,7 @@ public:
         }
 
         pool->Write<Node>(node, node_data);
-        // INCREMENT COUNT
+        changeCount(pool, true);
         unlock(pool, lock);
         pool->Deallocate<Node>(red_node);
         return HT_Res<V>(TRUE_STATE, 0);
@@ -217,7 +227,7 @@ public:
                     node_data.value[i] = node_data.value[node_data.length - 1];
                     node_data.length--;
                     pool->Write<Node>(node, node_data);
-                    // DECREMENT COUNT
+                    changeCount(pool, false);
                     unlock(pool, lock);
                     pool->Deallocate<Node>(red_node);
                     return HT_Res<V>(TRUE_STATE, old_value);

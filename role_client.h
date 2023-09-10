@@ -14,6 +14,7 @@
 
 #include "structures/hashtable.h"
 #include "structures/iht_ds.h"
+#include "structures/test_map.h"
 #include "common.h"
 #include "protos/experiment.pb.h"
 
@@ -23,7 +24,8 @@ using ::rome::WorkloadDriver;
 using ::rome::WorkloadDriverProto;
 
 // typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
-typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
+// typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
+typedef TestMap<int, int> IHT;
 
 std::string fromStateValue(state_value value){
   if (FALSE_STATE == value){
@@ -130,9 +132,10 @@ public:
         std::chrono::milliseconds(qps_sample_rate));
     ROME_ASSERT_OK(driver->Start());
     std::this_thread::sleep_for(std::chrono::seconds(runtime));
+    ROME_INFO("Done here, stop sequence");
     // Wait for all the clients to stop. Then set the done to true to release the server
     if (master_client){
-      if (barr != nullptr) barr->arrive_and_wait(); 
+      if (barr != nullptr) barr->arrive_and_wait();
     }
     *done = true;
     ROME_ASSERT_OK(driver->Stop());
@@ -158,7 +161,7 @@ public:
         if (count % progression == 0) ROME_INFO("Running Operation {}: contains({})", count, op.key);
         // ROME_INFO("Running Operation {}: contains({})", count, op.key);
         res = iht_->contains(op.key);
-        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) contains operation {}!={}", res.status, res.result, op.key);
+        if (res.status == TRUE_STATE) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) contains operation {}!={}", res.status, res.result, op.key);
         break;
       case(INSERT):
         if (count % progression == 0) ROME_INFO("Running Operation {}: insert({}, {})", count, op.key, op.value);
@@ -169,7 +172,7 @@ public:
         if (count % progression == 0) ROME_INFO("Running Operation {}: remove({})", count, op.key);
         // ROME_INFO("Running Operation {}: remove({})", count, op.key);
         res = iht_->remove(op.key);
-        if (res.status) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) remove operation {}!={}", res.status, res.result, op.key);
+        if (res.status == TRUE_STATE) ROME_ASSERT(res.result == op.key, "Invalid result of ({}) remove operation {}!={}", res.status, res.result, op.key);
         break;
       default:
         ROME_INFO("Expected CONTAINS, INSERT, or REMOVE operation.");
@@ -188,7 +191,7 @@ public:
   /// @return OkStatus if everything worked. Otherwise will shutdown the client.
   absl::Status Operations(bool at_scale){    
     if (at_scale){
-      int scale_size = 16; // TODO: (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 128;
+      int scale_size = (CNF_PLIST_SIZE * CNF_ELIST_SIZE) * 8;
       bool show_passing = false;
       for(int i = 0; i < scale_size; i++){
         test_output(show_passing, iht_->contains(i), HT_Res<int>(FALSE_STATE, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
@@ -201,15 +204,14 @@ public:
       }
       ROME_INFO(" = 50% Finished = ");
       for(int i = 0; i < scale_size; i++){
-        test_output(true, iht_->remove(i), HT_Res<int>(TRUE_STATE, i), std::string("Removes ") + std::to_string(i));
-        iht_->print();
+        test_output(show_passing, iht_->remove(i), HT_Res<int>(TRUE_STATE, i), std::string("Removes ") + std::to_string(i));
         test_output(show_passing, iht_->contains(i), HT_Res<int>(FALSE_STATE, 0), std::string("Contains ") + std::to_string(i) + std::string(" false"));
       }
       ROME_INFO(" = 75% Finished = ");
       for(int i = 0; i < scale_size; i++){
         test_output(show_passing, iht_->contains(i), HT_Res<int>(FALSE_STATE, 0), std::string("Contains ") + std::to_string(i) + std::string(" maintains false"));
       }
-      ROME_INFO("All test cases passed");
+      ROME_INFO("All test cases finished");
     } else {
       ROME_INFO("Starting test cases.");
       test_output(true, iht_->contains(5), HT_Res<int>(FALSE_STATE, 0), "Contains 5");
@@ -222,7 +224,7 @@ public:
       test_output(true, iht_->remove(4), HT_Res<int>(FALSE_STATE, 0), "Remove 4");
       test_output(true, iht_->contains(5), HT_Res<int>(FALSE_STATE, 0), "Contains 5");
       test_output(true, iht_->contains(4), HT_Res<int>(FALSE_STATE, 0), "Contains 4");
-      ROME_INFO("All cases passed");
+      ROME_INFO("All cases finished");
     }
     absl::Status stop_status = Stop();
     ROME_ASSERT_OK(stop_status);
