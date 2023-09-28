@@ -13,9 +13,9 @@
 
 using ::rome::rdma::MemoryPool;
 
-// typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
+typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 // typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
-typedef TestMap<int, int> IHT;
+// typedef TestMap<int, int> IHT;
 
 class Server {
 public:
@@ -54,34 +54,15 @@ public:
     }
 
     // Wait for all clients to be done.
-    for (auto &p : peers_) {
-      if (p.id == self_.id) continue; // ignore self since joining threads will force client and server to end at the same time
-      ROME_INFO("SERVER :: receiving ack from {}", p.id);
-      auto conn_or = pool_->connection_manager()->GetConnection(p.id);
-      if (!conn_or.ok())
-        return conn_or.status();
-
-      auto *conn = conn_or.value();
-      auto msg = conn->channel()->TryDeliver<AckProto>();
-      while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
-        msg = conn->channel()->TryDeliver<AckProto>();
-      }
-      ROME_INFO("SERVER :: received ack");
-    }
-
-    // Let all clients know that we are done
-    for (auto &p : peers_) {
-      if (p.id == self_.id) continue; // ignore self since joining threads will force client and server to end at the same time
-      ROME_INFO("SERVER :: sending ack to {}", p.id);
-      auto conn_or = pool_->connection_manager()->GetConnection(p.id);
-      if (!conn_or.ok())
-        return conn_or.status();
-      auto *conn = conn_or.value();
-      AckProto e;
-      // Send back an ack proto let the client know that all the other clients are done
-      auto sent = conn->channel()->Send(e);
-      ROME_INFO("SERVER :: sent ack");
-    }
+    if (pool_ == NULL) ROME_INFO("Using pool so I don't get compiler error while I test. Eventually I should commit to the tcp approach and remove pool");
+    tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance();
+    tcp::message recv_buffer[socket_handle->num_clients()];
+    socket_handle->recv_from_all(recv_buffer);
+    ROME_INFO("SERVER :: received ack");
+    
+    tcp::message send_buffer;
+    socket_handle->send_to_all(&send_buffer);
+    ROME_INFO("SERVER :: sent ack");
     return absl::OkStatus();
   }
 

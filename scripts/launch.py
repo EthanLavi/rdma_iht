@@ -15,11 +15,6 @@ def domain_name(nodetype):
     node_h = ['apt.emulab.net', 'cse.lehigh.edu', 'clemson.cloudlab.us', 'utah.cloudlab.us', 'utah.cloudlab.us', 'utah.cloudlab.us', 'utah.cloudlab.us']
     return node_h[node_i.index(nodetype)]
 
-
-
-# Define FLAGS to represet the flags
-FLAGS = flags.FLAGS
-
 # Experiment configuration
 flags.DEFINE_string('ssh_keyfile', '~/.ssh/id_rsa', 'Path to ssh file for authentication')
 flags.DEFINE_string('ssh_user', 'esl225', 'Username for login')
@@ -52,6 +47,10 @@ flags.DEFINE_bool('default', required=False, default=False, help="If to run the 
 flags.DEFINE_integer('thread_count', required=False, default=1, help="The number of threads to start per client. Only applicable in send_exp")
 flags.DEFINE_integer('node_count', required=False, default=1, help="The number of nodes to use in the experiment. Will use node0-nodeN")
 
+# Define FLAGS to represet the flags
+FLAGS = flags.FLAGS
+FLAGS(sys.argv)
+
 SINGLE_QUOTE = "'\"'\"'"
 def make_one_line(proto):
     return SINGLE_QUOTE + ' '.join(line for line in str(proto).split('\n')) + SINGLE_QUOTE 
@@ -66,25 +65,26 @@ def is_valid(string):
             return False
     return True
 
+# Create a function that will create a file and run the given command using that file as stout
+def __run__(cmd, outfile, file_perm):
+    with open(f"{outfile}.txt", file_perm) as f:
+        if FLAGS.dry_run:
+            print(cmd)
+        else:
+            try:
+                subprocess.run(cmd, shell=True, check=True, stderr=f, stdout=f)
+                print(outfile, "Successful Startup")
+                return
+            except subprocess.CalledProcessError as e:
+                print(outfile, "Invalid Startup because", e)
+
 def execute(commands, file_perm):
     """For each command in commands, start a process"""
-    # Create a function that will create a file and run the given command using that file as stout
-    def __run__(cmd, outfile):
-        with open(f"{outfile}.txt", file_perm) as f:
-            if FLAGS.dry_run:
-                print(cmd)
-            else:
-                try:
-                    subprocess.run(cmd, shell=True, check=True, stderr=f, stdout=f)
-                    print(outfile, "Successful Startup")
-                    return
-                except subprocess.CalledProcessError as e:
-                    print(outfile, "Invalid Startup because", e)
-
     processes: List[Process] = []
     for cmd, file in commands:
         # Start a thread
-        processes.append(Process(target=__run__, args=(cmd, os.path.join("results", FLAGS.experiment_name, file))))
+        file_out = os.path.join("results", FLAGS.experiment_name, file)
+        processes.append(Process(target=__run__, args=(cmd, file_out, file_perm)))
         processes[-1].start()
 
     # Wait for all threads to finish

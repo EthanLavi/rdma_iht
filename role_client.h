@@ -23,9 +23,9 @@ using ::rome::ClientAdaptor;
 using ::rome::WorkloadDriver;
 using ::rome::WorkloadDriverProto;
 
-// typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
+typedef RdmaIHT<int, int, CNF_ELIST_SIZE, CNF_PLIST_SIZE> IHT;
 // typedef Hashtable<int, int, CNF_PLIST_SIZE> IHT;
-typedef TestMap<int, int> IHT;
+// typedef TestMap<int, int> IHT;
 
 std::string fromStateValue(state_value value){
   if (FALSE_STATE == value){
@@ -67,10 +67,11 @@ public:
       int key_lb = client->params_.key_lb(), key_ub = client->params_.key_ub();
       int op_count = (key_ub - key_lb) * frac;
       ROME_INFO("CLIENT :: Data structure ({}%) is being populated ({} items inserted) by this client", frac * 100, op_count);
+      client->iht_->pool_->RegisterThread();
       client->iht_->populate(op_count, key_lb, key_ub, [=](int key){ return key; });
       ROME_INFO("CLIENT :: Done with populate!");
       // TODO: Sleeping for 1 second to account for difference between remote client start times. Must fix this in the future to a better solution
-      // The idea is even though remote nodes won't being workload at the same time, at least the data structure is guaranteed to be populated
+      // The idea is even though remote nodes won't start workload at the same time, at least the data structure is somewhat guaranteed to be populated
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -148,6 +149,7 @@ public:
     ROME_INFO("CLIENT :: Starting client...");
     // Conditional to allow us to bypass the barrier for certain client types
     // We want to start at the same time
+    this->iht_->pool_->RegisterThread();
     if (barrier_ != nullptr) barrier_->arrive_and_wait();
     return absl::OkStatus();
   }
@@ -240,19 +242,15 @@ public:
       return absl::OkStatus();
     }
     if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
-    auto conn = iht_->pool_->connection_manager()->GetConnection(host_.id);
-    ROME_CHECK_OK(ROME_RETURN(util::InternalErrorBuilder() << "Failed to retrieve server connection"), conn);
-    AckProto e;
-    auto sent = conn.value()->channel()->Send(e); // send the ack to let the server know that we are done
-
+    tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(host_.address.c_str());
+    // send the ack to let the server know that we are done
+    tcp::message send_buffer;
+    endpoint->send_server(&send_buffer);
     ROME_INFO("CLIENT :: Sent Ack");
 
     // Wait to receive an ack back. Letting us know that the other clients are done.
-    auto msg = conn.value()->channel()->TryDeliver<AckProto>();
-    while ((!msg.ok() && msg.status().code() == absl::StatusCode::kUnavailable)) {
-        msg = conn.value()->channel()->TryDeliver<AckProto>();
-    }
-
+    tcp::message recv_buffer;
+    endpoint->recv_server(&recv_buffer);
     ROME_INFO("CLIENT :: Received Ack");
 
     // Return ok status

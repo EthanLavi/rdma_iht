@@ -6,6 +6,7 @@
 #include <iostream>
 #include <ostream>
 #include <thread>
+#include <cstdlib>
 
 // View c++ version __cplusplus
 #define version_info __cplusplus
@@ -21,6 +22,7 @@
 #include "protos/experiment.pb.h"
 #include "rome/util/proto_util.h"
 #include "google/protobuf/text_format.h"
+#include "common.h"
 
 ABSL_FLAG(std::string, experiment_params, "", "Experimental parameters");
 ABSL_FLAG(bool, send_bulk, false, "If to run bulk operations. (More for benchmarking)");
@@ -37,8 +39,22 @@ constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
 
+
+void exiting() {
+    std::cout << "Exiting" << std::endl;
+    tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance(true);
+    if (socket_handle != NULL){
+        socket_handle->releaseResources();
+    }
+    tcp::EndpointManager* manager = tcp::EndpointManager::getInstance(NULL);
+    if (manager != NULL){
+        manager->releaseResources();
+    }
+}
+
 int main(int argc, char** argv){
     ROME_INIT_LOG();
+    std::atexit(exiting);
     absl::ParseCommandLine(argc, argv);
     bool bulk_operations = absl::GetFlag(FLAGS_send_bulk);
     bool test_operations = absl::GetFlag(FLAGS_send_test);
@@ -108,7 +124,8 @@ int main(int argc, char** argv){
     ROME_INFO("Created memory pool");
 
     IHT iht = IHT(self, &pool);
-    absl::Status status_iht = iht.Init(host, peers);
+    absl::Status status_iht = iht.InitTCP(host, peers);
+    ROME_INFO("Created an IHT");
     ROME_ASSERT_OK(status_iht);
 
     std::vector<std::thread> threads;
@@ -122,6 +139,7 @@ int main(int argc, char** argv){
                 iht.try_rehash();
             });
             ROME_ASSERT_OK(run_status);
+            pool.KillWorkerThread();
             ROME_INFO("[SERVER THREAD] -- End of execution; -- ");
         }));
     }
@@ -149,6 +167,7 @@ int main(int argc, char** argv){
     for(int n = 0; n < params.thread_count(); n++){
         // Add the thread
         threads.emplace_back(std::thread([&](int index){
+            ROME_INFO("Created a client");
             // Create and run a client in a thread
             std::unique_ptr<Client> client = Client::Create(self, host, peers, params, &client_sync, &iht, index == 0);
             absl::StatusOr<WorkloadDriverProto> output = Client::Run(std::move(client), &done, 0.5 / (double) params.node_count());
@@ -171,13 +190,18 @@ int main(int argc, char** argv){
 
     *result_proto.mutable_params() = params;
 
+    auto total_ops = 0;
     for (int i = 0; i < params.thread_count(); i++){
         IHTWorkloadDriverProto* r = result_proto.add_driver();
         std::string output;
+        auto ops = results[i].ops().counter().count();
+        total_ops += ops;
+        ROME_INFO("{}:{}", i, ops);
         results[i].SerializeToString(&output);
         r->MergeFromString(output);
     }
     
+    ROME_INFO("Total Ops: {}", total_ops);
     ROME_INFO("Compiled Proto Results ### {}", result_proto.DebugString());
 
     std::ofstream filestream("iht_result.pbtxt");
@@ -186,5 +210,5 @@ int main(int argc, char** argv){
     filestream.close();
 
     ROME_INFO("[EXPERIMENT] -- End of execution; -- ");
-    return 0;
+    exit(0);
 }

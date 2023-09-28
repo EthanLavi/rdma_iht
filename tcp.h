@@ -17,6 +17,8 @@
 #define MESSAGE_SIZE 32
 
 namespace tcp {
+/// A struct as a standard for communicating as a server-client. It has the capability to store 4 64-bit ints.
+/// In practice, I've only needed one, but the extra space comes in handy.
 struct message {
   union {
     struct {
@@ -27,8 +29,9 @@ struct message {
     } ints;
     char data[MESSAGE_SIZE];
   } content;
-  char padding = '\0';
+  char padding = '\0'; // a forceful null termination, in case I want a string
 
+  /// Construct a message. And unused values are 0
   message(uint64_t first_ = 0, uint64_t second_ = 0, uint64_t third_ = 0, uint64_t fourth_ = 0){
     content.ints.first = first_;
     content.ints.second = second_;
@@ -36,110 +39,161 @@ struct message {
     content.ints.fourth = fourth_;
   }
 
+  /// @brief Unpack the first value
   uint64_t get_first(){
     return content.ints.first;
   }
+  /// @brief Unpack the second value
   uint64_t get_second(){
     return content.ints.second;
   }
+  /// @brief Unpack the third value
   uint64_t get_third(){
     return content.ints.third;
   }
+  /// @brief Unpack the fourth value
   uint64_t get_fourth(){
     return content.ints.fourth;
   }
 };
 
+/// @brief Print error message and exit
+/// @param message the message to print
 void error(const char* message){
     fprintf(stderr, "%s", message);
     fprintf(stderr, "\n");
     exit(1);
 }
 
+/// A class for acting as a server and managing client sockets
+/// The interface is the server can only communicate with all the clients at once...
 class SocketManager {
 private:
-  int sockfd;
+  // socket for accepting new connections
+  int sockfd = -1;
+  // socket information
   struct sockaddr_in address;
+  // Client sockets.
   std::vector<int> client_sockets;
+  // self pointer to avoid double instantiation
   static SocketManager* self;
 
-  // Secret true constructor
+  // Hidden true constructor
   SocketManager(){
+    // Create a new socket
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     int result = 0;
     if (sockfd == -1) error("Cannot open socket");
     address.sin_family = AF_INET;
     address.sin_port = htons(PORT);
     address.sin_addr.s_addr = INADDR_ANY;
+    // Bind it
     result = bind(sockfd, (struct sockaddr*) &address, sizeof(address));
-    if (result == -1){ close(sockfd); error("Cannot bind to socket"); }
+    if (result == -1){ 
+      close(sockfd); 
+      error("Cannot bind to socket"); 
+    }
+    // Make sure we can re-use the socket. Sometimes our exit script doesn't properly close the socket and this will make it easier to re-run this program
+    const int enable = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0){
+      error("setsockopt failed");
+    }
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &enable, sizeof(int)) < 0){
+      error("setsockopt failed");
+    }
+    // I would likely want the capacity to listen to more. todo: Make this a parameter
     result = listen(sockfd, 10);
-    if (result == -1){ close(sockfd); error("Cannot listen on socket"); }
+    if (result == -1){ 
+      close(sockfd); 
+      error("Cannot listen on socket"); 
+    }
   }
 public:
   // Cannot be copied
   SocketManager(const SocketManager& obj) = delete;
 
+  /// @brief Accept a new client and add it to our record
   bool accept_conn(){
+    // Accept new connection
     int address_size = sizeof(address);
     int client_sockfd = accept(sockfd, (struct sockaddr*) &address, (socklen_t*) &address_size);
     if (client_sockfd == -1) return false;
+    // Record it
     client_sockets.push_back(client_sockfd);
     return true;
   }
 
+  /// @brief Send a message to each client
   void send_to_all(message* send_buffer){
     for(int i = 0; i < client_sockets.size(); i++){
       write(client_sockets[i], send_buffer->content.data, MESSAGE_SIZE + 1);
     }
   }
 
-  int get_num_clients(){
+  /// @brief The number of clients managed by the server
+  int num_clients(){
     return client_sockets.size();
   }
 
-  void recv_from_all(message** recv_buffer){
+  /// @brief Receive a message from all the clients. Make sure recv_buffer has enough room for all num_clients()
+  void recv_from_all(message* recv_buffer){
     for(int i = 0; i < client_sockets.size(); i++){
-      read(client_sockets[i], recv_buffer[i]->content.data, MESSAGE_SIZE + 1);
+      read(client_sockets[i], recv_buffer[i].content.data, MESSAGE_SIZE + 1);
     }
   }
 
-  static SocketManager* getInstance(){
-    if (self == NULL){
+  /// @brief Get the instance of the socket manager. Can return NULL
+  static SocketManager* getInstance(bool no_create = false){
+    if (self == NULL && !no_create){
       self = new SocketManager();
     }
     return self;
   }
 
-  static void releaseResources(){
+  /// @brief Destroy all the resources
+  void releaseResources(){
     for(int i = 0; i < self->client_sockets.size(); i++){
       close(self->client_sockets[i]);
     }
-    close(self->sockfd);
-    delete self;
+    if (self->sockfd != -1){
+      // Only close the socket if safe to do so
+      close(self->sockfd);
+    }
+    if (self != NULL){
+      // Only delete self if safe to do so
+      delete self;
+    }
   }
 };
 
+/// Class for managing an endpoint, (a client to receive stuff from the server)
 class EndpointManager {
 private:
-  int sockfd;
+  // Socket for communication with the server
+  int sockfd = -1;
+  // Self pointer to manage resources
   static EndpointManager* self;
 
-  // Secret true constructor
+  // Hidden true constructor
   EndpointManager(const char* ip){
+    // create a socket
     int result = 0;
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1) error("Cannot open socket");
+    // Get host by name (i.e. node0)
     struct hostent* server = gethostbyname(ip);
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_port = htons(PORT);
     // Check if server is null (means could not resolve hostname)
     if (server == NULL || server->h_addr_list == NULL){ close(sockfd); error("Could not resolve hostname"); }
+    // Get the host ip
     struct in_addr** host_ip_list = (struct in_addr**) server->h_addr_list;
     auto host_ip = *host_ip_list[0];
+    // use the host ip for communication
     result = inet_pton(AF_INET, inet_ntoa(host_ip), &address.sin_addr);  // Pointer (to String) to Number.
     if (result <= 0){ close(sockfd); error("Cannot inet pton"); }
+    // connect to host ip
     result = connect(sockfd, (struct sockaddr*) &address, sizeof(address)); 
     if (result == -1){ close(sockfd); error("Cannot connect to foreign socket"); }
   }
@@ -148,76 +202,41 @@ public:
   // Cannot be copied
   EndpointManager(const EndpointManager& obj) = delete;
 
+  /// @brief send a message to the server
   void send_server(message* send_buffer){
     int status = write(sockfd, send_buffer->content.data, MESSAGE_SIZE + 1);
     if (status == -1) error("Cannot send data over socket");
   }
 
+  /// @brief receive a message from the server
   void recv_server(message* recv_buffer){
     int status = read(sockfd, recv_buffer->content.data, MESSAGE_SIZE + 1);
     if (status == -1) error("Cannot read data over socket");
   }
 
+  /// @brief Get the endpoint's instance. Will connect to host if IP is not null and the endpoint hasn't been initialized.
   static EndpointManager* getInstance(const char* ip){
     if (self == NULL){
-      if (ip == NULL) error("Initial IP is null");
+      if (ip == NULL) return NULL;
       self = new EndpointManager(ip);
     }
     return self;
   }
 
-  static void releaseResources(){
-    delete self;
+  /// @brief release the resources
+  void releaseResources(){
+    if (sockfd != -1){
+      // If socket is safe to close, do so
+      close(sockfd);
+    }
+    if (self != NULL){
+      // If self is safe to delete, do so
+      delete self;
+    }
+    
   }
 };
-
-/// @brief Return a socket descripter
-/// @param imserver If this is the server in the connection management
-/// @param ip IP that identifies the target. If we are the server, the IP is irrelevant and we can just pass our own
-/// @return socket descriptor
-int link_with(bool imserver, const char* ip){
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0), result = 0;
-    if (sockfd == -1) error("Cannot open socket");
-    struct hostent* server = gethostbyname(ip);
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    address.sin_port = htons(PORT);
-
-    // Check if server is null (means could not resolve hostname)
-    if (server == NULL || server->h_addr_list == NULL){ close(sockfd); error("Could not resolve hostname"); }
-
-    // Load socket information
-    if (imserver){
-        address.sin_addr.s_addr = INADDR_ANY;
-        result = bind(sockfd, (struct sockaddr*) &address, sizeof(address));
-        if (result == -1){ close(sockfd); error("Cannot bind to socket"); }
-        result = listen(sockfd, 1);
-        if (result == -1){ close(sockfd); error("Cannot listen on socket"); }
-        int address_size = sizeof(address);
-        result = accept(sockfd, (struct sockaddr*) &address, (socklen_t*) &address_size);
-        if (result == -1){ close(sockfd); error("Cannot accept on new socket"); }
-        close(sockfd);
-        return result;
-    } else {
-        struct in_addr** host_ip_list = (struct in_addr**) server->h_addr_list;
-        auto host_ip = *host_ip_list[0];
-        ROME_INFO("{}", inet_ntoa(host_ip));
-        result = inet_pton(AF_INET, inet_ntoa(host_ip), &address.sin_addr);  // Pointer (to String) to Number.
-        if (result <= 0){ close(sockfd); error("Cannot inet pton"); }
-        result = connect(sockfd, (struct sockaddr*) &address, sizeof(address)); 
-        if (result == -1){ close(sockfd); error("Cannot connect to foreign socket"); }
-        return sockfd;
-    }
-}
-
-void Write(int sockfd, message* send_buffer){
-    int status = write(sockfd, send_buffer->content.data, MESSAGE_SIZE + 1);
-    if (status == -1) error("Cannot send data over socket");
-}
-
-void Read(int sockfd, message* recv_buffer){
-    int status = read(sockfd, recv_buffer->content.data, MESSAGE_SIZE + 1);
-    if (status == -1) error("Cannot read data over socket");
-}
-
+// Initialize pointers to managers as null
+SocketManager* SocketManager::self = nullptr;;
+EndpointManager* EndpointManager::self = nullptr;;
 }

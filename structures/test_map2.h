@@ -11,6 +11,7 @@
 #include "rome/rdma/rdma_memory.h"
 #include "rome/logging/logging.h"
 #include "common.h"
+#include "../rome_construction/rdma_shadow.h"
 
 #define LEN 8
 
@@ -46,6 +47,8 @@ private:
     inline bool is_null(remote_ptr<T> ptr){
         return ptr == remote_nullptr;
     }
+
+    int inter = 0;
 
 public:
     MemoryPool* pool_;
@@ -108,35 +111,11 @@ public:
     /// @param key the key to search on
     /// @return if the key was found or not. The value at the key is stored in RdmaIHT::result
     HT_Res<V> contains(K key){
-        remote_ptr<List> prealloc = pool_->Allocate<List>();
-        List temp = *std::to_address(prealloc);
-        temp.vals[0] = 100;
-        *std::to_address(prealloc) = temp;
-        remote_ptr<List> list = pool_->Read<List>(this->root, prealloc);
-        if (list.address() != prealloc.address()){
-            ROME_INFO("Prealloc not working as expected");
-        }
-        List l = *std::to_address(list);
-        for(int i = 0; i < LEN; i++){
-            if(l.vals[i] != i){
-                ROME_INFO("Illegal inequality {} {}", l.vals[i], i);
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                l = *std::to_address(list);
-            }
-        }
-        pool_->Deallocate<List>(list);
-
-        /*
-        List old = *std::to_address(this->root);
-        uint64_t test = old.vals[0];
-        old.vals[0]++;
-        pool_->Write<List>(this->root, old);
-        List l = *std::to_address(this->root);
-        if(l.vals[0] == test){
-            ROME_INFO("Illegal equality");
-        }
-        */
-
+        RdmaShadow<List> root_ = RdmaShadow<List>(pool_, root);
+        List l = root_.get();
+        assert(l.vals[0] == inter);
+        l.vals[0] = ++inter;
+        root.set(l);
         return HT_Res<V>(TRUE_STATE, key);
     }
     

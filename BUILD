@@ -16,7 +16,7 @@ cc_proto_library(
 cc_library(
     name = "ds",
     srcs = ["structures/types.cpp"],
-    hdrs = ["structures/iht_ds.h", "structures/hashtable.h", "structures/linked_set.h", "structures/test_map.h", "role_server.h", "role_client.h", "common.h"],
+    hdrs = ["structures/iht_ds.h", "structures/hashtable.h", "structures/linked_set.h", "structures/test_map.h", "rome_construction/rdma_shadow.h", "role_server.h", "role_client.h", "common.h", "tcp.h"],
     copts = ["-std=c++2a"],
     deps = [
         ":experiment_cc_proto",

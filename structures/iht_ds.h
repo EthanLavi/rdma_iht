@@ -234,6 +234,47 @@ public:
         return absl::OkStatus();
     }
 
+    /// @brief Initialize the IHT by connecting to the peers and exchanging the PList pointer
+    /// @param host the leader of the initialization
+    /// @param peers all the nodes in the neighborhood
+    /// @return status code for the function
+    absl::Status InitTCP(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers){
+        bool is_host_ = self_.id == host.id;
+
+        if (is_host_){
+            // Host machine, it is my responsibility to initiate configuration
+            remote_plist iht_root = pool_->Allocate<PList>();
+            // Init plist and set remote proto to communicate its value
+            InitPList(iht_root, 1);
+            this->root = iht_root;
+            
+            // Iterate through peers
+            tcp::message iht_ptr = tcp::message(iht_root.address());
+            tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance();
+            for (auto p = peers.begin(); p != peers.end(); p++){
+                // Ignore sending pointer to myself
+                if (p->id == self_.id) continue;
+                // Form a connection with the machine
+                socket_handle->accept_conn();
+            }
+            // Send the address over
+            socket_handle->send_to_all(&iht_ptr);
+        } else {
+            // sleep for a short while to ensure the receiving end is up and running
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
+            // Form the connection
+            tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(host.address.c_str());
+            // Get the message
+            tcp::message iht_ptr;
+            endpoint->recv_server(&iht_ptr);
+
+            // From there, decode the data into a value
+            remote_plist iht_root = decltype(iht_root)(host.id, iht_ptr.get_first());
+            this->root = iht_root;
+        }
+
+        return absl::OkStatus();
+    }
 
     /// @brief Gets a value at the key.
     /// @param key the key to search on
@@ -468,7 +509,7 @@ public:
         K key_range = key_ub - key_lb;
 
         // Create a random operation generator that is 
-        // - evenly distributed among the key range  
+        // - evenly distributed among the key range
         std::uniform_real_distribution<double> dist = std::uniform_real_distribution<double>(0.0, 1.0);
         std::default_random_engine gen((unsigned) std::time(NULL));
         for (int c = 0; c < op_count; c++){
