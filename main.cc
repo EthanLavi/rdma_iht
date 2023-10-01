@@ -41,7 +41,7 @@ using cm_type = MemoryPool::cm_type;
 
 
 void exiting() {
-    std::cout << "Exiting" << std::endl;
+    ROME_INFO("Exiting");
     tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance(true);
     if (socket_handle != NULL){
         socket_handle->releaseResources();

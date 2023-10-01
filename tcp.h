@@ -13,7 +13,7 @@
 #include <netinet/in.h>
 #include <vector>
 
-#define PORT 8002
+#define PORT 8001
 #define MESSAGE_SIZE 32
 
 namespace tcp {
@@ -60,8 +60,7 @@ struct message {
 /// @brief Print error message and exit
 /// @param message the message to print
 void error(const char* message){
-    fprintf(stderr, "%s", message);
-    fprintf(stderr, "\n");
+    ROME_INFO("{}", message);
     exit(1);
 }
 
@@ -84,15 +83,6 @@ private:
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     int result = 0;
     if (sockfd == -1) error("Cannot open socket");
-    address.sin_family = AF_INET;
-    address.sin_port = htons(PORT);
-    address.sin_addr.s_addr = INADDR_ANY;
-    // Bind it
-    result = bind(sockfd, (struct sockaddr*) &address, sizeof(address));
-    if (result == -1){ 
-      close(sockfd); 
-      error("Cannot bind to socket"); 
-    }
     // Make sure we can re-use the socket. Sometimes our exit script doesn't properly close the socket and this will make it easier to re-run this program
     const int enable = 1;
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0){
@@ -100,6 +90,16 @@ private:
     }
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &enable, sizeof(int)) < 0){
       error("setsockopt failed");
+    }
+
+    // Bind it
+    address.sin_family = AF_INET;
+    address.sin_port = htons(PORT);
+    address.sin_addr.s_addr = INADDR_ANY;
+    result = bind(sockfd, (struct sockaddr*) &address, sizeof(address));
+    if (result == -1){ 
+      close(sockfd); 
+      error("Cannot bind to socket"); 
     }
     // I would likely want the capacity to listen to more. todo: Make this a parameter
     result = listen(sockfd, 10);
