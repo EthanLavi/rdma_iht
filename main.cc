@@ -7,6 +7,8 @@
 #include <ostream>
 #include <thread>
 #include <cstdlib>
+#include <cmath>
+#include <algorithm>
 
 // View c++ version __cplusplus
 #define version_info __cplusplus
@@ -23,6 +25,7 @@
 #include "rome/util/proto_util.h"
 #include "google/protobuf/text_format.h"
 #include "common.h"
+#include "exchange_ptr.h"
 
 ABSL_FLAG(std::string, experiment_params, "", "Experimental parameters");
 ABSL_FLAG(bool, send_bulk, false, "If to run bulk operations. (More for benchmarking)");
@@ -39,6 +42,8 @@ constexpr uint16_t portNum = 18000;
 
 using cm_type = MemoryPool::cm_type;
 
+// The optimial number of memory pools is mp=min(t, MAX_QP/n) where n is the number of nodes and t is the number of threads
+// To distribute mp (memory pools) across t threads, it is best for t/mp to be a whole number
 
 void exiting() {
     ROME_INFO("Exiting");
@@ -68,6 +73,10 @@ int main(int argc, char** argv){
     // Get hostname to determine who we are
     char hostname[4096];
     gethostname(hostname, 4096);
+
+    // Determine number of memory pools
+    int mp = std::min(params.thread_count(), (int) std::floor(params.qp_max() / params.node_count()));
+    ROME_INFO("Distributing {} MemoryPools across {} threads", mp, params.thread_count());
 
     // Start initializing a vector of peers
     volatile bool done = false;
@@ -124,9 +133,14 @@ int main(int argc, char** argv){
     ROME_INFO("Created memory pool");
 
     IHT iht = IHT(self, &pool);
-    absl::Status status_iht = iht.InitTCP(host, peers);
+    if (self.id == host.id){
+        remote_ptr<anon_ptr> root_ptr = iht.InitAsFirst();
+        tcp::ExchangePointer(self, host, peers, root_ptr);
+    } else {
+        remote_ptr<anon_ptr> root_ptr = tcp::ExchangePointer(self, host, peers, remote_nullptr);
+        iht.InitFromPointer(root_ptr);
+    }
     ROME_INFO("Created an IHT");
-    ROME_ASSERT_OK(status_iht);
 
     std::vector<std::thread> threads;
     if (hostname[4] == '0'){

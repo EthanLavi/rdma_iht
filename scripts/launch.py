@@ -46,6 +46,7 @@ flags.DEFINE_bool('default', required=False, default=False, help="If to run the 
 # Cluster parameters
 flags.DEFINE_integer('thread_count', required=False, default=1, help="The number of threads to start per client. Only applicable in send_exp")
 flags.DEFINE_integer('node_count', required=False, default=1, help="The number of nodes to use in the experiment. Will use node0-nodeN")
+flags.DEFINE_integer('qp_max', required=False, default=30, help="The number of queues to use in the experiment MAX")
 
 # Define FLAGS to represet the flags
 FLAGS = flags.FLAGS
@@ -99,11 +100,11 @@ def process_exp_flags():
             # Load the json into the proto
             json_data = f.read()
             mapper = json.loads(json_data)
-            one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "contains", "insert", "remove", "key_lb", "key_ub", "region_size", "thread_count", "node_count"]
+            one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "contains", "insert", "remove", "key_lb", "key_ub", "region_size", "thread_count", "node_count", "qp_max"]
             for param in one_to_ones:
                 exec(f"params.{param} = mapper['{param}']")
     elif not FLAGS.default:
-        one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "region_size", "thread_count", "node_count"]
+        one_to_ones = ["think_time", "qps_sample_rate", "max_qps_second", "runtime", "unlimited_stream", "op_count", "region_size", "thread_count", "node_count", "qp_max"]
         for param in one_to_ones:
             exec(f"params.{param} = FLAGS.{param}")
         contains, insert, remove = FLAGS.op_distribution.split("-")

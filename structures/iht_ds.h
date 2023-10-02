@@ -185,95 +185,19 @@ public:
         if (((ELIST_SIZE * 8) + 4) % 64 < 60) ROME_INFO("Warning: Suboptimal ELIST_SIZE b/c EList needs to be aligned to 64 bytes");
     };
 
-    /// @brief Initialize the IHT by connecting to the peers and exchanging the PList pointer
-    /// @param host the leader of the initialization
-    /// @param peers all the nodes in the neighborhood
-    /// @return status code for the function
-    absl::Status Init(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers) {
-        bool is_host_ = self_.id == host.id;
-
-        if (is_host_){
-            // Host machine, it is my responsibility to initiate configuration
-            RemoteObjectProto proto;
-            remote_plist iht_root = pool_->Allocate<PList>();
-            // Init plist and set remote proto to communicate its value
-            InitPList(iht_root, 1);
-            this->root = iht_root;
-            proto.set_raddr(iht_root.address());
-
-            // Iterate through peers
-            for (auto p = peers.begin(); p != peers.end(); p++){
-                // Ignore sending pointer to myself
-                if (p->id == self_.id) continue;
-
-                // Form a connection with the machine
-                auto conn_or = pool_->connection_manager()->GetConnection(p->id);
-                ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
-
-                // Send the proto over
-                absl::Status status = conn_or.value()->channel()->Send(proto);
-                ROME_CHECK_OK(ROME_RETURN(status), status);
-            }
-        } else {
-            // Listen for a connection
-            auto conn_or = pool_->connection_manager()->GetConnection(host.id);
-            ROME_CHECK_OK(ROME_RETURN(conn_or.status()), conn_or);
-
-            // Try to get the data from the machine, repeatedly trying until successful
-            auto got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
-            while(got.status().code() == absl::StatusCode::kUnavailable) {
-                got = conn_or.value()->channel()->TryDeliver<RemoteObjectProto>();
-            }
-            ROME_CHECK_OK(ROME_RETURN(got.status()), got);
-
-            // From there, decode the data into a value
-            remote_plist iht_root = decltype(iht_root)(host.id, got->raddr());
-            this->root = iht_root;
-        }
-
-        return absl::OkStatus();
+    /// @brief Create a fresh iht
+    /// @return the iht root pointer
+    remote_ptr<anon_ptr> InitAsFirst(){
+        remote_plist iht_root = pool_->Allocate<PList>();
+        InitPList(iht_root, 1);
+        this->root = iht_root;
+        return static_cast<remote_ptr<anon_ptr>>(iht_root);
     }
 
-    /// @brief Initialize the IHT by connecting to the peers and exchanging the PList pointer
-    /// @param host the leader of the initialization
-    /// @param peers all the nodes in the neighborhood
-    /// @return status code for the function
-    absl::Status InitTCP(MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers){
-        bool is_host_ = self_.id == host.id;
-
-        if (is_host_){
-            // Host machine, it is my responsibility to initiate configuration
-            remote_plist iht_root = pool_->Allocate<PList>();
-            // Init plist and set remote proto to communicate its value
-            InitPList(iht_root, 1);
-            this->root = iht_root;
-            
-            // Iterate through peers
-            tcp::message iht_ptr = tcp::message(iht_root.address());
-            tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance();
-            for (auto p = peers.begin(); p != peers.end(); p++){
-                // Ignore sending pointer to myself
-                if (p->id == self_.id) continue;
-                // Form a connection with the machine
-                socket_handle->accept_conn();
-            }
-            // Send the address over
-            socket_handle->send_to_all(&iht_ptr);
-        } else {
-            // sleep for a short while to ensure the receiving end is up and running
-            std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
-            // Form the connection
-            tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(host.address.c_str());
-            // Get the message
-            tcp::message iht_ptr;
-            endpoint->recv_server(&iht_ptr);
-
-            // From there, decode the data into a value
-            remote_plist iht_root = decltype(iht_root)(host.id, iht_ptr.get_first());
-            this->root = iht_root;
-        }
-
-        return absl::OkStatus();
+    /// @brief Initialize an IHT from the pointer of another IHT
+    /// @param root_ptr the root pointer of the other iht from InitAsFirst();
+    void InitFromPointer(remote_ptr<anon_ptr> root_ptr){
+        this->root = static_cast<remote_plist>(root_ptr);
     }
 
     /// @brief Gets a value at the key.
