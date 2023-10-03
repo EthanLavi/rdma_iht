@@ -92,8 +92,9 @@ def execute(commands, file_perm):
     for process in processes:
         process.join()
 
-def process_exp_flags():
+def process_exp_flags(node_id):
     params = protos.ExperimentParams()
+    params.node_id = node_id
     """Returns a string to append to the payload"""
     if FLAGS.from_param_config is not None:
         with open(FLAGS.from_param_config, "r") as f:
@@ -135,6 +136,7 @@ def main(args):
         for node in csv.reader(f):
             # For every node in nodefile, get the node info
             nodename, nodealias, nodetype = node
+            node_id = int(nodename.replace("node", ""))
             # Construct ssh command and payload
             ssh_login = f"ssh -i {FLAGS.ssh_keyfile} {FLAGS.ssh_user}@{nodealias}.{domain_name(nodetype)}"
             bazel_path = f"/users/{FLAGS.ssh_user}/go/bin/bazelisk"
@@ -150,7 +152,7 @@ def main(args):
                 print("Must specify whether testing methods '--send_test', doing bulk operations '--send_bulk', or sending experiment '--send_exp'")
                 exit(1)
             # Adding experiment flags
-            payload += " --experiment_params=" + make_one_line(process_exp_flags())
+            payload += " --experiment_params=" + make_one_line(process_exp_flags(node_id))
             # Tuple: (Creating Command | Output File Name)
             commands.append((' '.join([ssh_login, quote(payload)]), nodename))
             if FLAGS.send_exp:

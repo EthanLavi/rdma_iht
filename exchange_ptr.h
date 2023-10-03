@@ -19,33 +19,27 @@ namespace tcp {
 /// @param peers all the nodes in the neighborhood
 /// @param root_ptr the pointer to exchange
 /// @return the root pointer we got from the exchange
-remote_ptr<anon_ptr> ExchangePointer(MemoryPool::Peer self, MemoryPool::Peer host, const std::vector<MemoryPool::Peer> &peers, remote_ptr<anon_ptr> root_ptr){
+remote_ptr<anon_ptr> ExchangePointer(EndpointContext ctx, MemoryPool::Peer self, MemoryPool::Peer host, remote_ptr<anon_ptr> root_ptr){
   bool is_host_ = self.id == host.id;
 
   if (is_host_){
-      // Iterate through peers
-      tcp::message ptr_message = tcp::message(root_ptr.address());
-      tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance();
-      for (auto p = peers.begin(); p != peers.end(); p++){
-          // Ignore sending pointer to myself
-          if (p->id == self.id) continue;
-          // Form a connection with the machine
-          socket_handle->accept_conn();
-      }
-      // Send the address over
-      socket_handle->send_to_all(&ptr_message);
-      return root_ptr;
+    // Iterate through peers
+    tcp::message ptr_message = tcp::message(root_ptr.address());
+    tcp::SocketManager* socket_handle = tcp::SocketManager::getInstance();
+    // Send the address over
+    socket_handle->send_to_all(&ptr_message);
+    return root_ptr;
   } else {
-      // sleep for a short while to ensure the receiving end is up and running
-      std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
-      // Form the connection
-      tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(host.address.c_str());
-      // Get the message
-      tcp::message ptr_message;
-      endpoint->recv_server(&ptr_message);
+    // sleep for a short while to ensure the receiving end is up and running
+    std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
+    // Form the connection
+    tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(ctx, host.address.c_str());
+    // Get the message
+    tcp::message ptr_message;
+    endpoint->recv_server(&ptr_message);
 
-      // From there, decode the data into a value
-      return remote_ptr<anon_ptr>(host.id, ptr_message.get_first());
+    // From there, decode the data into a value
+    return remote_ptr<anon_ptr>(host.id, ptr_message.get_first());
   }
 }
 }

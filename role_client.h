@@ -16,6 +16,7 @@
 #include "structures/iht_ds.h"
 #include "structures/test_map.h"
 #include "common.h"
+#include "tcp.h"
 #include "protos/experiment.pb.h"
 
 using ::rome::rdma::MemoryPool;
@@ -53,8 +54,8 @@ typedef IHT_Op<int, int> Operation;
 class Client : public ClientAdaptor<Operation> {
 public:
   static std::unique_ptr<Client>
-  Create(const MemoryPool::Peer &self, const MemoryPool::Peer &server, const std::vector<MemoryPool::Peer> &peers, ExperimentParams& params, std::barrier<> *barrier, IHT* iht, bool master_client) {
-    return std::unique_ptr<Client>(new Client(self, server, peers, params, barrier, iht, master_client));
+  Create(const MemoryPool::Peer &server, const tcp::EndpointContext &ctx, ExperimentParams& params, std::barrier<> *barrier, IHT* iht, bool master_client) {
+    return std::unique_ptr<Client>(new Client(server, ctx, params, barrier, iht, master_client));
   }
 
   /// @brief Run the client
@@ -63,17 +64,16 @@ public:
   /// @param frac if 0, won't populate. Otherwise, will do this fraction of the population
   /// @return the resultproto
   static absl::StatusOr<WorkloadDriverProto> Run(std::unique_ptr<Client> client, volatile bool *done, double frac) {
-    if (client->master_client_){
-      int key_lb = client->params_.key_lb(), key_ub = client->params_.key_ub();
-      int op_count = (key_ub - key_lb) * frac;
-      ROME_INFO("CLIENT :: Data structure ({}%) is being populated ({} items inserted) by this client", frac * 100, op_count);
-      client->iht_->pool_->RegisterThread();
-      client->iht_->populate(op_count, key_lb, key_ub, [=](int key){ return key; });
-      ROME_INFO("CLIENT :: Done with populate!");
-      // TODO: Sleeping for 1 second to account for difference between remote client start times. Must fix this in the future to a better solution
-      // The idea is even though remote nodes won't start workload at the same time, at least the data structure is somewhat guaranteed to be populated
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
+    int key_lb = client->params_.key_lb(), key_ub = client->params_.key_ub();
+    int op_count = (key_ub - key_lb) * frac;
+    ROME_INFO("CLIENT :: Data structure ({}%) is being populated ({} items inserted) by this client", frac * 100, op_count);
+    client->iht_->pool_->RegisterThread();
+    client->iht_->populate(op_count, key_lb, key_ub, [=](int key){ return key; });
+    ROME_INFO("CLIENT :: Done with populate!");
+
+    // TODO: Sleeping for 1 second to account for difference between remote client start times. Must fix this in the future to a better solution
+    // The idea is even though remote nodes won't start workload at the same time, at least the data structure is somewhat guaranteed to be populated
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // TODO: Signal Handler
     // signal(SIGINT, signal_handler);
@@ -83,7 +83,6 @@ public:
         qps_controller =
           rome::LeakyTokenBucketQpsController<util::SystemClock>::Create(client->params_.max_qps_second()); // what is the value here
 
-    // auto *client_ptr = client.get();
     std::vector<Operation> operations = std::vector<Operation>();
     
     // initialize random number generator and key_range
@@ -127,6 +126,7 @@ public:
     int32_t qps_sample_rate = client->params_.qps_sample_rate();
     std::barrier<>* barr = client->barrier_;
     bool master_client = client->master_client_;
+    barr->arrive_and_wait();
     auto driver = rome::WorkloadDriver<Operation>::Create(
         std::move(client), std::move(workload_stream),
         qps_controller.get(),
@@ -137,8 +137,8 @@ public:
     // Wait for all the clients to stop. Then set the done to true to release the server
     if (master_client){
       if (barr != nullptr) barr->arrive_and_wait();
+      *done = true;
     }
-    *done = true;
     ROME_ASSERT_OK(driver->Stop());
     ROME_INFO("CLIENT :: Driver generated {}", driver->ToString());
     return driver->ToProto();
@@ -237,13 +237,12 @@ public:
   absl::Status Stop() override {
     ROME_INFO("CLIENT :: Stopping client...");
     if (!master_client_){
-      // if we aren't the master client we don't need to do the stop sequence. Just arrive at the barrier
+      // if we aren't the master client, we need to arrive at the barrier
       if (barrier_ != nullptr) barrier_->arrive_and_wait();
-      return absl::OkStatus();
     }
-    if (host_.id == self_.id) return absl::OkStatus(); // if we are the host, we don't need to do the stop sequence
-    tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(host_.address.c_str());
+
     // send the ack to let the server know that we are done
+    tcp::EndpointManager* endpoint = tcp::EndpointManager::getInstance(endpoint_ctx_, host_.address.c_str());
     tcp::message send_buffer;
     endpoint->send_server(&send_buffer);
     ROME_INFO("CLIENT :: Sent Ack");
@@ -258,17 +257,16 @@ public:
   }
 
 private:
-  Client(const MemoryPool::Peer &self, const MemoryPool::Peer &host, const std::vector<MemoryPool::Peer> &peers, ExperimentParams &params, std::barrier<> *barrier, IHT* iht, bool master_client)
-      : self_(self), host_(host), peers_(peers), params_(params), barrier_(barrier), iht_(iht), master_client_(master_client) {
+  Client(const MemoryPool::Peer &host, const tcp::EndpointContext ctx, ExperimentParams &params, std::barrier<> *barrier, IHT* iht, bool master_client)
+      : host_(host), endpoint_ctx_(ctx), params_(params), barrier_(barrier), iht_(iht), master_client_(master_client) {
         if (params.unlimited_stream()) progression = 10000;
         else progression = params_.op_count() * 0.001;
       }
 
   int count = 0;
 
-  const MemoryPool::Peer self_;
   const MemoryPool::Peer host_;
-  std::vector<MemoryPool::Peer> peers_;
+  const tcp::EndpointContext endpoint_ctx_;
   const ExperimentParams params_;
   std::barrier<> *barrier_;
   IHT* iht_;

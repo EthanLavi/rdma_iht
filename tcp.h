@@ -1,3 +1,5 @@
+#pragma once
+
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -12,6 +14,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <vector>
+#include <mutex>
+#include <thread>
+#include <unordered_map>
 
 #define PORT 8001
 #define MESSAGE_SIZE 32
@@ -74,6 +79,7 @@ private:
   struct sockaddr_in address;
   // Client sockets.
   std::vector<int> client_sockets;
+  static std::mutex syncer;
   // self pointer to avoid double instantiation
   static SocketManager* self;
 
@@ -145,6 +151,7 @@ public:
   /// @brief Get the instance of the socket manager. Can return NULL
   static SocketManager* getInstance(bool no_create = false){
     if (self == NULL && !no_create){
+      std::lock_guard<std::mutex> lock(syncer); // make sure we cant get double initialization
       self = new SocketManager();
     }
     return self;
@@ -165,6 +172,18 @@ public:
     }
   }
 };
+// Initialize pointers to manager as null
+std::mutex SocketManager::syncer = std::mutex();
+SocketManager* SocketManager::self = nullptr;
+
+class EndpointContext {
+  friend class EndpointManager;
+  uint16_t id_;
+
+public:
+  EndpointContext() : id_(0xFFFF){}
+  EndpointContext(uint16_t id) : id_(id){}
+};
 
 /// Class for managing an endpoint, (a client to receive stuff from the server)
 class EndpointManager {
@@ -172,7 +191,8 @@ private:
   // Socket for communication with the server
   int sockfd = -1;
   // Self pointer to manage resources
-  static EndpointManager* self;
+  static std::mutex syncer;
+  static std::unordered_map<uint16_t, EndpointManager*> self;
 
   // Hidden true constructor
   EndpointManager(const char* ip){
@@ -214,29 +234,36 @@ public:
     if (status == -1) error("Cannot read data over socket");
   }
 
+  /// @brief Check if the endpoint has been initialized
+  bool is_init(EndpointContext ctx){
+    return self.find(ctx.id_) != self.end();
+  }
+
   /// @brief Get the endpoint's instance. Will connect to host if IP is not null and the endpoint hasn't been initialized.
-  static EndpointManager* getInstance(const char* ip){
-    if (self == NULL){
-      if (ip == NULL) return NULL;
-      self = new EndpointManager(ip);
+  static EndpointManager* getInstance(EndpointContext ctx, const char* ip){
+    std::lock_guard<std::mutex> lock(syncer);
+    uint16_t id = ctx.id_;
+    if (id == 0xFFFF) return NULL;
+    if (self.find(id) == self.end()){
+      if (ip == nullptr) return NULL;
+      self[id] = new EndpointManager(ip);
     }
-    return self;
+    return self[id];
   }
 
   /// @brief release the resources
-  void releaseResources(){
-    if (sockfd != -1){
-      // If socket is safe to close, do so
-      close(sockfd);
+  static void releaseResources(){
+    std::lock_guard<std::mutex> lock(syncer);
+    for(auto it = self.begin(); it != self.end(); it++){
+      int sockfd = (*it).second->sockfd;
+      if (sockfd != -1){
+        close(sockfd);
+      }
+      delete (*it).second;
     }
-    if (self != NULL){
-      // If self is safe to delete, do so
-      delete self;
-    }
-    
   }
 };
-// Initialize pointers to managers as null
-SocketManager* SocketManager::self = nullptr;;
-EndpointManager* EndpointManager::self = nullptr;;
+std::unordered_map<uint16_t, EndpointManager*> EndpointManager::self(0);
+std::mutex EndpointManager::syncer = std::mutex();
+
 }
